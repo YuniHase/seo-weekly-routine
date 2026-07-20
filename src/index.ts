@@ -45,7 +45,7 @@ async function main(): Promise<void> {
   log.info("WP記事数", { publish: wp.publish.length, draft: wp.draft.length, trash: wp.trash.length });
 
   const input: AnalyzeInput = { gscCurrent: gsc.current, gscPrevious: gsc.previous, ga4, wp };
-  const { counts, allSorted, dedup } = buildCandidates(input);
+  const { counts, allSorted, dedup, n2Excluded } = buildCandidates(input);
 
   console.log("\n========== 候補抽出サマリー（DRY_RUN レビュー用） ==========");
   console.log(`分析期間: current ${gsc.currentPeriod.startDate}〜${gsc.currentPeriod.endDate} / previous ${gsc.previousPeriod.startDate}〜${gsc.previousPeriod.endDate}`);
@@ -54,6 +54,13 @@ async function main(): Promise<void> {
   console.log("\n■ 各ルールの閾値通過件数（重複カウント可・dedup前）");
   console.log(`  リライト: R1=${counts.R1}  R2=${counts.R2}  R3=${counts.R3}`);
   console.log(`  新規:     N1=${counts.N1}  N2=${counts.N2}（N2は要Claude判断）`);
+  if (n2Excluded.length > 0) {
+    console.log(`  ※ N2追加フィルタ(Option B)で除外: ${n2Excluded.length}件（カニバリ回避＝リライト対応領域）`);
+    for (const x of n2Excluded) {
+      const basis = x.basis === "per-query" ? "クエリ単位順位" : "記事全体順位";
+      console.log(`     - "${x.query}" Imp${x.impressions} … ${x.publishedUrl} が ${basis} pos${x.publishedPosition.toFixed(1)}`);
+    }
+  }
 
   console.log(`\n■ 候補（dedup前 ${allSorted.length}件 → WP照合後 kept ${dedup.kept.length}件 / skip ${dedup.skipped.length}件）`);
   if (dedup.kept.length === 0) {

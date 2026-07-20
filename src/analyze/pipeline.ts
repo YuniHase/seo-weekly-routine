@@ -4,7 +4,7 @@
  */
 import { aggregateByUrl, aggregateByQuery, type UrlAgg, type QueryAgg } from "./aggregate.ts";
 import { extractRewriteCandidates } from "./rewriteCandidates.ts";
-import { extractNewArticleCandidates } from "./newArticleCandidates.ts";
+import { extractNewArticleCandidates, type N2Excluded } from "./newArticleCandidates.ts";
 import { filterAlreadyProposed, type DedupResult } from "./dedup.ts";
 import { DEFAULT_THRESHOLDS, type Thresholds } from "./thresholds.ts";
 import { normalizeUrl } from "../util/urlNormalize.ts";
@@ -15,6 +15,7 @@ export interface BuildResult {
   counts: Record<RewriteRule | NewRule, number>;
   allSorted: Candidate[]; // dedup前（スコア降順）
   dedup: DedupResult; // kept / skipped
+  n2Excluded: N2Excluded[]; // 既存記事が上位表示中で除外したN2
 }
 
 function publishMap(publish: WpPostRef[]): Map<string, WpPostRef> {
@@ -48,7 +49,7 @@ export function buildCandidates(input: AnalyzeInput, th: Thresholds = DEFAULT_TH
   const counts = { ...rw.counts, ...nw.counts };
   const allSorted = [...rw.candidates, ...nw.candidates].sort((a, b) => b.score - a.score);
   const dedup = filterAlreadyProposed(allSorted, input.wp);
-  return { counts, allSorted, dedup };
+  return { counts, allSorted, dedup, n2Excluded: nw.n2Excluded };
 }
 
 // ── 閾値感度分析 ───────────────────────────────────────────────
