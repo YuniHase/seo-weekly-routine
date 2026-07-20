@@ -38,24 +38,51 @@ export async function pingWp(): Promise<{ ok: boolean; status: number; sample?: 
 
 /**
  * 指定ステータスの記事一覧を取得（ページング対応）。
- * draft/trash は要認証。publish は認証なしでも取得可だが認証付きで統一する。
- * TODO(step4): _fields=id,link,title,slug でページング取得を実装。
+ * draft/trash は要認証。publish も認証付きで統一する。
  */
-export async function fetchPostsByStatus(_status: WpStatus): Promise<WpPostRef[]> {
-  throw new Error("not implemented (step4)");
+export async function fetchPostsByStatus(status: WpStatus): Promise<WpPostRef[]> {
+  const perPage = 100;
+  const out: WpPostRef[] = [];
+  for (let page = 1; page <= 50; page++) {
+    const url = `${CONFIG.wp.baseUrl}/wp-json/wp/v2/posts?status=${status}&per_page=${perPage}&page=${page}&_fields=id,link,title,slug,status`;
+    const res = await fetch(url, { headers: { Authorization: authHeader() } });
+    if (res.status === 400) break; // ページ範囲外（rest_post_invalid_page_number）
+    if (!res.ok) throw new Error(`WP posts取得失敗 status=${status} page=${page}: HTTP ${res.status}`);
+    const rows = (await res.json()) as Array<{ id: number; link: string; title?: { rendered?: string }; slug?: string; status?: string }>;
+    if (!Array.isArray(rows) || rows.length === 0) break;
+    for (const r of rows) {
+      out.push({ id: r.id, link: r.link ?? "", title: r.title?.rendered ?? "", slug: r.slug ?? "", status });
+    }
+    const total = Number(res.headers.get("x-wp-totalpages") ?? "1");
+    if (page >= total) break;
+  }
+  return out;
 }
 
 /**
  * 重複・却下判定に必要な publish/draft/trash をまとめて取得する。
- * TODO(step4): fetchPostsByStatus を3ステータス分呼んで束ねる。
  */
 export async function fetchWpSnapshot(): Promise<WpSnapshot> {
-  throw new Error("not implemented (step4)");
+  const [publish, draft, trash] = await Promise.all([
+    fetchPostsByStatus("publish"),
+    fetchPostsByStatus("draft"),
+    fetchPostsByStatus("trash"),
+  ]);
+  return { publish, draft, trash };
+}
+
+/** URL→記事IDマッピング用（公開記事一覧）。 */
+export async function fetchPublishedPosts(): Promise<WpPostRef[]> {
+  return fetchPostsByStatus("publish");
 }
 
 /** リライト対象の本文をedit contextで取得。 */
-export async function fetchPostContent(_id: number): Promise<{ title: string; contentHtml: string }> {
-  throw new Error("not implemented (step4)");
+export async function fetchPostContent(id: number): Promise<{ title: string; contentHtml: string }> {
+  const url = `${CONFIG.wp.baseUrl}/wp-json/wp/v2/posts/${id}?context=edit&_fields=title,content`;
+  const res = await fetch(url, { headers: { Authorization: authHeader() } });
+  if (!res.ok) throw new Error(`WP本文取得失敗 id=${id}: HTTP ${res.status}`);
+  const b = (await res.json()) as { title?: { raw?: string; rendered?: string }; content?: { raw?: string; rendered?: string } };
+  return { title: b.title?.raw ?? b.title?.rendered ?? "", contentHtml: b.content?.raw ?? b.content?.rendered ?? "" };
 }
 
 export interface DraftInput {
