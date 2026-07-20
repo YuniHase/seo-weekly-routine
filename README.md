@@ -79,4 +79,8 @@ src/
 
 ## 構築ステップ
 
-計画書 `seo-weekly-routine-plan.md` §9 の順で構築中。現在: **step1（スキャフォールド）完了**。
+計画書 `seo-weekly-routine-plan.md` §9 の順で構築中。進捗:
+- ✅ step1 スキャフォールド
+- ✅ step3 WP REST API疎通（ローカル＋GitHub Actions海外IPで読み書き検証済み）
+- ✅ step4 GSC/GA4クライアント実装・実データ取得確認
+- ⬜ step5 候補抽出（リライト/新規）＋WPで重複・却下スキップ ← 次
