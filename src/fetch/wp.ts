@@ -16,7 +16,10 @@ import { CONFIG } from "../config.ts";
 import type { WpPostRef, WpSnapshot, WpStatus } from "../analyze/types.ts";
 
 function authHeader(): string {
-  const token = Buffer.from(`${CONFIG.wp.username}:${CONFIG.wp.appPassword}`).toString("base64");
+  // 前後空白・改行を除去（環境変数/Secretsへの貼り付けで末尾改行が混入しがちなため）。
+  const user = CONFIG.wp.username.trim();
+  const pass = CONFIG.wp.appPassword.trim();
+  const token = Buffer.from(`${user}:${pass}`).toString("base64");
   return `Basic ${token}`;
 }
 

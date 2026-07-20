@@ -7,11 +7,25 @@
  * ローカルでも `.env` があれば dotenv 経由で動く。
  */
 import "dotenv/config";
+import { createHash } from "node:crypto";
 
-const BASE = (process.env.WP_BASE_URL ?? "").replace(/\/+$/, "");
-const USER = process.env.WP_USERNAME ?? "";
-const PASS = process.env.WP_APP_PASSWORD ?? "";
+// 前後空白・改行を除去（GitHub Secretsへの貼り付けで末尾改行が混入しがちなため防御）。
+// アプリパスワード内部のスペースは trim では消えないので安全。
+const BASE = (process.env.WP_BASE_URL ?? "").trim().replace(/\/+$/, "");
+const USER = (process.env.WP_USERNAME ?? "").trim();
+const PASS = (process.env.WP_APP_PASSWORD ?? "").trim();
 const auth = "Basic " + Buffer.from(`${USER}:${PASS}`).toString("base64");
+
+/** 値を晒さずに指紋を出す（ローカル.envとGHA Secretの一致確認用）。 */
+function fingerprint(name: string, raw: string) {
+  const t = raw.trim();
+  const h = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 12);
+  console.log(
+    `  ${name.padEnd(16)} len=${raw.length} trimLen=${t.length} trailingWS=${raw.length !== t.length}` +
+      ` first=${raw.charCodeAt(0) || "-"} last=${raw.charCodeAt(raw.length - 1) || "-"}` +
+      ` sha(raw)=${raw ? h(raw) : "-"} sha(trim)=${t ? h(t) : "-"}`,
+  );
+}
 
 if (!BASE || !USER || !PASS) {
   console.error("必須の環境変数が不足しています（WP_BASE_URL / WP_USERNAME / WP_APP_PASSWORD）。GitHub Secrets を確認してください。");
@@ -37,6 +51,10 @@ async function req(path: string, withAuth: boolean, init: RequestInit = {}) {
 async function main() {
   console.log(`WP GHAスモークテスト（海外IP経路）: ${BASE}`);
   console.log(`ランナーの外向きIP: ${await fetch("https://api.ipify.org").then((r) => r.text()).catch(() => "取得失敗")}`);
+  console.log("認証情報の指紋（ローカル.envの基準値と突き合わせる。sha が一致すれば値は同一）:");
+  fingerprint("WP_BASE_URL", process.env.WP_BASE_URL ?? "");
+  fingerprint("WP_USERNAME", process.env.WP_USERNAME ?? "");
+  fingerprint("WP_APP_PASSWORD", process.env.WP_APP_PASSWORD ?? "");
 
   // 1. 認証なし・公開記事一覧
   {
