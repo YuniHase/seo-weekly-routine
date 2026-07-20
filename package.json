@@ -1,0 +1,25 @@
+{
+  "name": "seo-weekly-routine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "recovery-wear-guide.com の週次SEOルーチン。GSC/GA4分析→候補抽出→Claudeドラフト生成→WP下書き投稿。GitHub Actions(cron)で週1実行。状態(提案/採用/却下)はWordPress自身のデータで管理し外部DBは持たない。",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.68.0",
+    "dotenv": "^16.4.5",
+    "googleapis": "^144.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

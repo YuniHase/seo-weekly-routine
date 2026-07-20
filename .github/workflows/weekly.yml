@@ -1,0 +1,34 @@
+name: weekly-seo-routine
+
+# 週1回の自動実行 + 手動実行。アプリ内cronは持たず、ここがスケジューラ。
+on:
+  schedule:
+    # 日曜 22:00 UTC = 月曜 07:00 JST。月曜朝にレビューできる状態にする。
+    - cron: '0 22 * * 0'
+  workflow_dispatch: {}
+
+jobs:
+  run:
+    # Ubuntu(Linux)のみ使用。macOS/Windowsは無料枠の消費が激しいので使わない。
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm start
+        env:
+          # 機密は GitHub Secrets から注入（コードに直書きしない）
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GA4_PROPERTY_ID: ${{ secrets.GA4_PROPERTY_ID }}
+          GSC_SITE_URL: ${{ secrets.GSC_SITE_URL }}
+          WP_BASE_URL: ${{ secrets.WP_BASE_URL }}
+          WP_USERNAME: ${{ secrets.WP_USERNAME }}
+          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # 非機密の動作設定は Variables（Settings → Secrets and variables → Actions → Variables）
+          MAX_DRAFTS_PER_RUN: ${{ vars.MAX_DRAFTS_PER_RUN }}
+          LOOKBACK_DAYS: ${{ vars.LOOKBACK_DAYS }}
+          DRY_RUN: ${{ vars.DRY_RUN }}

@@ -1,0 +1,20 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+*.tsbuildinfo
+
+# env & secrets
+.env
+.env.local
+*.pem
+service-account*.json
+
+# logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
