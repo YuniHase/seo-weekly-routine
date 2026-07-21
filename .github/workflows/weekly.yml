@@ -1,13 +1,12 @@
 name: weekly-seo-routine
 
 # 週1回の自動実行 + 手動実行。アプリ内cronは持たず、ここがスケジューラ。
-#
-# ⚠️ cron(schedule)は現在【無効化中】。手動実行(workflow_dispatch)での本番相当確認が
-#    全て通ったら、下の schedule ブロックのコメントを外して有効化する（step9最終手順）。
+# 本番稼働: 手動実行での確認が全通過したため cron を有効化済み。
+# 投稿の有無は Variables の DRY_RUN で制御（false=投稿する / true=ログのみ）。
 on:
-  # schedule:
-  #   # 日曜 22:00 UTC = 月曜 07:00 JST。月曜朝にレビューできる状態にする。
-  #   - cron: '0 22 * * 0'
+  schedule:
+    # 日曜 22:00 UTC = 月曜 07:00 JST。月曜朝にレビューできる状態にする。
+    - cron: '0 22 * * 0'
   workflow_dispatch: {}
 
 jobs:
