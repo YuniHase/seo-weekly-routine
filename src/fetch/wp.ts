@@ -90,7 +90,45 @@ export interface DraftInput {
   contentHtml: string;
 }
 
-/** 下書き（status=draft）として投稿し、作成された記事IDを返す。 */
-export async function createDraft(_input: DraftInput): Promise<number> {
-  throw new Error("not implemented (step7)");
+export interface CreatedDraft {
+  id: number;
+  link: string;
+  status: string;
+  editLink: string;
+}
+
+/**
+ * 新規下書き（status=draft）としてPOSTする。
+ *
+ * ⚠️ 必ずコレクションエンドポイント `POST /wp/v2/posts`（IDなし）に投げる。
+ * これは常に「新規記事」を作成する。既存記事IDへの PUT/POST は一切行わないため、
+ * リライト元記事を上書き・変更することはない（§5-3: 元記事は変更しない）。
+ */
+export async function createDraft(input: DraftInput): Promise<CreatedDraft> {
+  const url = `${CONFIG.wp.baseUrl}/wp-json/wp/v2/posts`; // IDなし＝新規作成
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { Authorization: authHeader(), "Content-Type": "application/json" },
+    body: JSON.stringify({ title: input.title, content: input.contentHtml, status: "draft" }),
+  });
+  if (res.status !== 201 && !res.ok) {
+    const t = await res.text();
+    throw new Error(`WP下書き投稿失敗: HTTP ${res.status} ${t.slice(0, 300)}`);
+  }
+  const b = (await res.json()) as { id: number; link: string; status: string };
+  return {
+    id: b.id,
+    link: b.link,
+    status: b.status,
+    editLink: `${CONFIG.wp.baseUrl}/wp-admin/post.php?post=${b.id}&action=edit`,
+  };
+}
+
+/** 記事の modified タイムスタンプを取得（元記事が変更されていないことの確認用）。 */
+export async function fetchPostModified(id: number): Promise<string> {
+  const url = `${CONFIG.wp.baseUrl}/wp-json/wp/v2/posts/${id}?context=edit&_fields=id,modified,modified_gmt`;
+  const res = await fetch(url, { headers: { Authorization: authHeader() } });
+  if (!res.ok) throw new Error(`WP modified取得失敗 id=${id}: HTTP ${res.status}`);
+  const b = (await res.json()) as { modified_gmt?: string; modified?: string };
+  return b.modified_gmt ?? b.modified ?? "";
 }

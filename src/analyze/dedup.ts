@@ -37,6 +37,11 @@ export function filterAlreadyProposed(candidates: Candidate[], wp: WpSnapshot): 
   const draftUrls = new Set(wp.draft.map((p) => normalizeUrl(p.link)));
   const trashUrls = new Set(wp.trash.map((p) => normalizeUrl(p.link)));
   const allPosts = [...wp.publish, ...wp.draft, ...wp.trash];
+  const publishByUrl = new Map(wp.publish.map((p) => [normalizeUrl(p.link), p] as const));
+  // 我々が作る提案ドラフトは「新規記事」なので targetURLとはURLが一致しない。
+  // よって「【AI提案/...】元タイトル」というタイトルマーカーで既提案/却下を検出する。
+  const proposalPosts = [...wp.draft.map((p) => ({ p, st: "draft" as const })), ...wp.trash.map((p) => ({ p, st: "trash" as const }))]
+    .filter(({ p }) => p.title.includes("AI提案"));
 
   const kept: Candidate[] = [];
   const skipped: Array<{ candidate: Candidate; reason: string }> = [];
@@ -44,8 +49,18 @@ export function filterAlreadyProposed(candidates: Candidate[], wp: WpSnapshot): 
   for (const c of candidates) {
     if (c.type === "rewrite" && c.targetUrl) {
       const u = normalizeUrl(c.targetUrl);
-      if (draftUrls.has(u)) { skipped.push({ candidate: c, reason: "draftに提案済み" }); continue; }
-      if (trashUrls.has(u)) { skipped.push({ candidate: c, reason: "trashで却下済み" }); continue; }
+      if (draftUrls.has(u)) { skipped.push({ candidate: c, reason: "draftに提案済み(URL一致)" }); continue; }
+      if (trashUrls.has(u)) { skipped.push({ candidate: c, reason: "trashで却下済み(URL一致)" }); continue; }
+      // タイトルマーカー照合: 元記事タイトルを含むAI提案ドラフト/ゴミ箱があれば既提案/却下
+      const src = publishByUrl.get(u);
+      if (src?.title) {
+        const st = normText(src.title);
+        const hit = proposalPosts.find(({ p }) => st && normText(p.title).includes(st));
+        if (hit) {
+          skipped.push({ candidate: c, reason: hit.st === "trash" ? "trashで却下済み(タイトル一致)" : "draftに提案済み(タイトル一致)" });
+          continue;
+        }
+      }
       kept.push(c);
     } else {
       // 新規: いずれかのクエリが既存記事(公開/下書き/ゴミ箱)のタイトル・スラッグと一致

@@ -51,6 +51,12 @@ export const CONFIG = {
     dataDelayDays: int("DATA_DELAY_DAYS", 3),
     dryRun: bool("DRY_RUN", true),
   },
+  batch: {
+    // 本番は Batch API（50%オフ・非同期）。USE_BATCH=false で同期に切替（デバッグ用）。
+    useBatch: bool("USE_BATCH", true),
+    pollIntervalMs: int("BATCH_POLL_INTERVAL_MS", 15000),
+    maxWaitMs: int("BATCH_MAX_WAIT_MS", 1800000), // 30分でタイムアウト
+  },
 };
 
 export type Config = typeof CONFIG;
