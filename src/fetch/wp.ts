@@ -13,6 +13,7 @@
  * 403の場合はXserver側IP制限 / Wordfenceブロックを疑い、停止してユーザー報告。
  */
 import { CONFIG } from "../config.ts";
+import { log } from "../util/logger.ts";
 import type { WpPostRef, WpSnapshot, WpStatus } from "../analyze/types.ts";
 
 function authHeader(): string {
@@ -23,10 +24,36 @@ function authHeader(): string {
   return `Basic ${token}`;
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * GET系リクエストを、一時的なネットワーク断（`fetch failed`＝DNS/接続タイムアウト等）に対して
+ * 指数バックオフでリトライする（既定3回: 1s→2s→4s）。
+ * HTTPエラー応答（403/400等）はスローされないのでそのまま返す（呼び出し側で判定）。
+ * 投稿(POST)は二重投稿防止のためこれを使わない。
+ * ※ 接続レベルの失敗が続く場合は Xserver の海外IP制限ON等、恒久要因を疑うこと。
+ */
+async function getWithRetry(url: string, init: RequestInit = {}, attempts = 3): Promise<Response> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fetch(url, init);
+    } catch (e) {
+      lastErr = e;
+      if (i < attempts - 1) {
+        const waitMs = 1000 * 2 ** i;
+        log.warn(`WP GET 接続失敗、${waitMs}ms後にリトライ(${i + 1}/${attempts})`, e instanceof Error ? e.message : String(e));
+        await sleep(waitMs);
+      }
+    }
+  }
+  throw lastErr;
+}
+
 /** step3: 疎通確認。ステータスコードとサンプル記事を返す。 */
 export async function pingWp(): Promise<{ ok: boolean; status: number; sample?: unknown }> {
   const url = `${CONFIG.wp.baseUrl}/wp-json/wp/v2/posts?per_page=1`;
-  const res = await fetch(url, { headers: { Authorization: authHeader() } });
+  const res = await getWithRetry(url, { headers: { Authorization: authHeader() } });
   let sample: unknown;
   try {
     sample = await res.json();
@@ -45,7 +72,7 @@ export async function fetchPostsByStatus(status: WpStatus): Promise<WpPostRef[]>
   const out: WpPostRef[] = [];
   for (let page = 1; page <= 50; page++) {
     const url = `${CONFIG.wp.baseUrl}/wp-json/wp/v2/posts?status=${status}&per_page=${perPage}&page=${page}&_fields=id,link,title,slug,status`;
-    const res = await fetch(url, { headers: { Authorization: authHeader() } });
+    const res = await getWithRetry(url, { headers: { Authorization: authHeader() } });
     if (res.status === 400) break; // ページ範囲外（rest_post_invalid_page_number）
     if (!res.ok) throw new Error(`WP posts取得失敗 status=${status} page=${page}: HTTP ${res.status}`);
     const rows = (await res.json()) as Array<{ id: number; link: string; title?: { rendered?: string }; slug?: string; status?: string }>;
@@ -79,7 +106,7 @@ export async function fetchPublishedPosts(): Promise<WpPostRef[]> {
 /** リライト対象の本文をedit contextで取得。 */
 export async function fetchPostContent(id: number): Promise<{ title: string; contentHtml: string }> {
   const url = `${CONFIG.wp.baseUrl}/wp-json/wp/v2/posts/${id}?context=edit&_fields=title,content`;
-  const res = await fetch(url, { headers: { Authorization: authHeader() } });
+  const res = await getWithRetry(url, { headers: { Authorization: authHeader() } });
   if (!res.ok) throw new Error(`WP本文取得失敗 id=${id}: HTTP ${res.status}`);
   const b = (await res.json()) as { title?: { raw?: string; rendered?: string }; content?: { raw?: string; rendered?: string } };
   return { title: b.title?.raw ?? b.title?.rendered ?? "", contentHtml: b.content?.raw ?? b.content?.rendered ?? "" };
@@ -127,7 +154,7 @@ export async function createDraft(input: DraftInput): Promise<CreatedDraft> {
 /** 記事の modified タイムスタンプを取得（元記事が変更されていないことの確認用）。 */
 export async function fetchPostModified(id: number): Promise<string> {
   const url = `${CONFIG.wp.baseUrl}/wp-json/wp/v2/posts/${id}?context=edit&_fields=id,modified,modified_gmt`;
-  const res = await fetch(url, { headers: { Authorization: authHeader() } });
+  const res = await getWithRetry(url, { headers: { Authorization: authHeader() } });
   if (!res.ok) throw new Error(`WP modified取得失敗 id=${id}: HTTP ${res.status}`);
   const b = (await res.json()) as { modified_gmt?: string; modified?: string };
   return b.modified_gmt ?? b.modified ?? "";
