@@ -9,7 +9,7 @@
  * 上での一致・部分一致（過剰に凝らない）。曖昧なものは §5 の Claude 判断に委ねる。
  */
 import { normalizeUrl } from "../util/urlNormalize.ts";
-import type { Candidate, WpSnapshot, WpPostRef } from "./types.ts";
+import type { Candidate, WpSnapshot, WpPostRef, ProposalTargets } from "./types.ts";
 
 export interface DedupResult {
   kept: Candidate[];
@@ -33,7 +33,7 @@ function textMatches(query: string, post: WpPostRef): boolean {
   );
 }
 
-export function filterAlreadyProposed(candidates: Candidate[], wp: WpSnapshot): DedupResult {
+export function filterAlreadyProposed(candidates: Candidate[], wp: WpSnapshot, proposalTargets?: ProposalTargets): DedupResult {
   const draftUrls = new Set(wp.draft.map((p) => normalizeUrl(p.link)));
   const trashUrls = new Set(wp.trash.map((p) => normalizeUrl(p.link)));
   const allPosts = [...wp.publish, ...wp.draft, ...wp.trash];
@@ -49,9 +49,13 @@ export function filterAlreadyProposed(candidates: Candidate[], wp: WpSnapshot): 
   for (const c of candidates) {
     if (c.type === "rewrite" && c.targetUrl) {
       const u = normalizeUrl(c.targetUrl);
+      // 最優先: 提案本文の `対象:URL` で照合（タイトル変更に強い・恒久的に堅牢）
+      if (proposalTargets?.drafted.has(u)) { skipped.push({ candidate: c, reason: "draftに提案済み(対象URL一致)" }); continue; }
+      if (proposalTargets?.rejected.has(u)) { skipped.push({ candidate: c, reason: "trashで却下済み(対象URL一致)" }); continue; }
+      // フォールバック(URL一致): 提案自体のURLが対象と一致するケース
       if (draftUrls.has(u)) { skipped.push({ candidate: c, reason: "draftに提案済み(URL一致)" }); continue; }
       if (trashUrls.has(u)) { skipped.push({ candidate: c, reason: "trashで却下済み(URL一致)" }); continue; }
-      // タイトルマーカー照合: 元記事タイトルを含むAI提案ドラフト/ゴミ箱があれば既提案/却下
+      // フォールバック(タイトルマーカー): 元記事タイトルを含むAI提案ドラフト/ゴミ箱
       const src = publishByUrl.get(u);
       if (src?.title) {
         const st = normText(src.title);

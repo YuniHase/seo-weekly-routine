@@ -14,7 +14,8 @@
  */
 import { CONFIG } from "../config.ts";
 import { log } from "../util/logger.ts";
-import type { WpPostRef, WpSnapshot, WpStatus } from "../analyze/types.ts";
+import { normalizeUrl } from "../util/urlNormalize.ts";
+import type { WpPostRef, WpSnapshot, WpStatus, ProposalTargets } from "../analyze/types.ts";
 
 function authHeader(): string {
   // 前後空白・改行を除去（環境変数/Secretsへの貼り付けで末尾改行が混入しがちなため）。
@@ -101,6 +102,32 @@ export async function fetchWpSnapshot(): Promise<WpSnapshot> {
 /** URL→記事IDマッピング用（公開記事一覧）。 */
 export async function fetchPublishedPosts(): Promise<WpPostRef[]> {
   return fetchPostsByStatus("publish");
+}
+
+/**
+ * AI提案の draft/trash 記事の「本文コメント」から対象URL（`対象: <URL>`）を抽出し、
+ * 既提案(drafted)/却下(rejected)の対象URL集合（正規化済み）を返す。
+ *
+ * タイトルは人手で編集されたり元記事タイトルの変更で一致しなくなるため、本文に埋め込んだ
+ * 対象URLで判定する（タイトル変更に強い重複・却下判定）。テスト下書き等コメントが無いものは無視。
+ */
+export async function fetchProposalTargets(snapshot: WpSnapshot): Promise<ProposalTargets> {
+  const drafted = new Set<string>();
+  const rejected = new Set<string>();
+  const targets = [
+    ...snapshot.draft.filter((p) => p.title.includes("AI提案")).map((p) => ({ p, set: drafted })),
+    ...snapshot.trash.filter((p) => p.title.includes("AI提案")).map((p) => ({ p, set: rejected })),
+  ];
+  for (const { p, set } of targets) {
+    try {
+      const { contentHtml } = await fetchPostContent(p.id);
+      const m = contentHtml.match(/対象:\s*(https?:\/\/[^\s|>]+)/);
+      if (m) set.add(normalizeUrl(m[1]));
+    } catch (e) {
+      log.warn(`提案対象URLの抽出に失敗 id=${p.id}`, e instanceof Error ? e.message : String(e));
+    }
+  }
+  return { drafted, rejected };
 }
 
 /** リライト対象の本文をedit contextで取得。 */

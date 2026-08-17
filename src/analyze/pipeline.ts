@@ -48,7 +48,7 @@ export function buildCandidates(input: AnalyzeInput, th: Thresholds = DEFAULT_TH
   const { rw, nw } = extractWith(current, previous, byQuery, input, publishByUrl, homeUrl, th);
   const counts = { ...rw.counts, ...nw.counts };
   const allSorted = [...rw.candidates, ...nw.candidates].sort((a, b) => b.score - a.score);
-  const dedup = filterAlreadyProposed(allSorted, input.wp);
+  const dedup = filterAlreadyProposed(allSorted, input.wp, input.proposalTargets);
   return { counts, allSorted, dedup, n2Excluded: nw.n2Excluded };
 }
 

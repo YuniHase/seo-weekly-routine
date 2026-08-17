@@ -66,6 +66,15 @@ export interface Candidate {
   reason: string;
 }
 
+/**
+ * 提案本文コメント `対象: <URL>` から抽出した、既提案/却下の対象URL集合（正規化済み）。
+ * タイトル変更に強い重複・却下判定に使う。
+ */
+export interface ProposalTargets {
+  drafted: Set<string>; // draft にある提案の対象URL（＝提案済み）
+  rejected: Set<string>; // trash にある提案の対象URL（＝却下済み）
+}
+
 /** 候補抽出ロジックへの入力（取得済みデータ一式） */
 export interface AnalyzeInput {
   gscCurrent: GscRow[];
@@ -73,4 +82,6 @@ export interface AnalyzeInput {
   ga4: Ga4Row[];
   /** WP記事スナップショット。publish はURL→ID対応や受け皿判定、draft/trash は重複・却下判定に使う */
   wp: WpSnapshot;
+  /** 提案本文から抽出した既提案/却下の対象URL（タイトル変更に強い判定用） */
+  proposalTargets?: ProposalTargets;
 }

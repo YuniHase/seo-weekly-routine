@@ -18,7 +18,7 @@ import { CONFIG } from "./config.ts";
 import { log } from "./util/logger.ts";
 import { fetchGscData } from "./fetch/gsc.ts";
 import { fetchGa4Data } from "./fetch/ga4.ts";
-import { fetchWpSnapshot, fetchPostContent, createDraft } from "./fetch/wp.ts";
+import { fetchWpSnapshot, fetchProposalTargets, fetchPostContent, createDraft } from "./fetch/wp.ts";
 import { buildCandidates, sensitivity } from "./analyze/pipeline.ts";
 import { generateDraftsBatch, type GenItem } from "./generate/batch.ts";
 import { generateDraftSync, type GeneratedDraft } from "./generate/draft.ts";
@@ -48,7 +48,11 @@ async function main(): Promise<void> {
   const [gsc, ga4, wp] = await Promise.all([fetchGscData(), fetchGa4Data(), fetchWpSnapshot()]);
   log.info("WP記事数", { publish: wp.publish.length, draft: wp.draft.length, trash: wp.trash.length });
 
-  const input: AnalyzeInput = { gscCurrent: gsc.current, gscPrevious: gsc.previous, ga4, wp };
+  // 提案本文の `対象:URL` から既提案/却下の対象URLを抽出（タイトル変更に強い重複・却下判定）
+  const proposalTargets = await fetchProposalTargets(wp);
+  log.info("既提案/却下の対象URL", { drafted: proposalTargets.drafted.size, rejected: proposalTargets.rejected.size });
+
+  const input: AnalyzeInput = { gscCurrent: gsc.current, gscPrevious: gsc.previous, ga4, wp, proposalTargets };
   const { counts, allSorted, dedup, n2Excluded } = buildCandidates(input);
 
   console.log("\n========== 候補抽出サマリー ==========");
