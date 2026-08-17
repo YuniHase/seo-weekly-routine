@@ -52,6 +52,9 @@ export async function generateDraftsBatch(items: GenItem[]): Promise<Map<number,
     if (!item) continue;
     if (entry.result.type === "succeeded") {
       const msg = entry.result.message;
+      if (msg.stop_reason === "max_tokens") {
+        log.warn(`Batch idx=${idx} max_tokens到達（出力が途中で切れた可能性。max_tokens増枠を検討）`, { output: msg.usage.output_tokens });
+      }
       try {
         out.set(idx, assembleDraft(item.candidate, item.ctx, contentText(msg.content), {
           model: msg.model,
@@ -59,7 +62,7 @@ export async function generateDraftsBatch(items: GenItem[]): Promise<Map<number,
           outputTokens: msg.usage.output_tokens,
         }));
       } catch (e) {
-        log.error(`Batch結果の整形失敗 idx=${idx}`, e instanceof Error ? e.message : String(e));
+        log.error(`Batch結果の整形失敗 idx=${idx} (stop_reason=${msg.stop_reason})`, e instanceof Error ? e.message : String(e));
       }
     } else {
       log.warn(`Batch生成失敗 idx=${idx} (${item.candidate.targetUrl ?? item.candidate.queries[0]})`, entry.result.type);

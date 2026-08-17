@@ -65,7 +65,12 @@ export function buildGenParams(c: Candidate, ctx: GenContext) {
       : buildNewArticlePrompt(c, ctx.internalLinkTitles ?? []);
   return {
     model: CONFIG.anthropic.model,
-    max_tokens: 16000,
+    // 記事HTMLは長め。途中で切れて不正JSONにならないよう十分な上限を取る
+    // （Batchはタイムアウト無縁・実消費分のみ課金なので上限を上げても安全）。
+    max_tokens: 32000,
+    // 構造化リライト(JSON出力)では思考は不要。出力予算をJSON本文に回し、
+    // 思考消費でJSONが途中終了するのを防ぐ（コスト・時間も削減）。
+    thinking: { type: "disabled" as const },
     system: COMPLIANCE_GUIDE,
     messages: [{ role: "user" as const, content: user }],
   };
@@ -114,12 +119,16 @@ export function contentText(content: Anthropic.ContentBlock[]): string {
 }
 const textOf = contentText;
 
-/** 同期API（messages.create）で1件生成する（step6品質確認・単発用）。 */
+/**
+ * 同期生成（単発・デバッグ/USE_BATCH=false用）。
+ * max_tokensが大きいとSDKが非ストリーミングを拒否する（10分タイムアウト保護）ため、
+ * ストリーミングで受けて finalMessage() で完全な応答を得る。
+ */
 export async function generateDraftSync(c: Candidate, ctx: GenContext): Promise<GeneratedDraft> {
   if (!CONFIG.anthropic.apiKey) throw new Error("ANTHROPIC_API_KEY が未設定です");
   const client = new Anthropic({ apiKey: CONFIG.anthropic.apiKey });
   const params = buildGenParams(c, ctx);
-  const res = await client.messages.create(params);
+  const res = await client.messages.stream(params).finalMessage();
   return assembleDraft(c, ctx, textOf(res.content), {
     model: res.model,
     inputTokens: res.usage.input_tokens,
