@@ -104,28 +104,60 @@ export async function fetchPublishedPosts(): Promise<WpPostRef[]> {
   return fetchPostsByStatus("publish");
 }
 
+/** AI提案記事の本文コメントから読み取った1件分の記録（重複判定＋効果測定に使う） */
+export interface ProposalRecord {
+  id: number;
+  status: WpStatus; // draft=未レビュー / trash=却下 / publish=採用(タイトル未変更の場合のみ検出)
+  title: string;
+  targetUrl: string | null; // 正規化済み（`対象:` コメント由来）
+  runDate: string | null; // 実行日 YYYY-MM-DD
+  before: { position?: number; ctr?: number; impressions?: number }; // 提案時点の現状メトリクス
+}
+
 /**
- * AI提案の draft/trash 記事の「本文コメント」から対象URL（`対象: <URL>`）を抽出し、
- * 既提案(drafted)/却下(rejected)の対象URL集合（正規化済み）を返す。
- *
- * タイトルは人手で編集されたり元記事タイトルの変更で一致しなくなるため、本文に埋め込んだ
- * 対象URLで判定する（タイトル変更に強い重複・却下判定）。テスト下書き等コメントが無いものは無視。
+ * AI提案の draft/trash/publish 記事の「本文コメント」を読み、提案記録を抽出する。
+ * コメント形式: `<!-- SEOルーチン提案 | 実行日: … | … | 現状: 順位X CTR Y% ImpZ | 対象: <URL> -->`
+ * タイトルは人手編集/元記事タイトル変更で一致しなくなるため、対象URLで判定する（堅牢）。
+ * コメントの無いテスト下書き等は targetUrl=null となり判定に影響しない。
  */
-export async function fetchProposalTargets(snapshot: WpSnapshot): Promise<ProposalTargets> {
-  const drafted = new Set<string>();
-  const rejected = new Set<string>();
-  const targets = [
-    ...snapshot.draft.filter((p) => p.title.includes("AI提案")).map((p) => ({ p, set: drafted })),
-    ...snapshot.trash.filter((p) => p.title.includes("AI提案")).map((p) => ({ p, set: rejected })),
-  ];
-  for (const { p, set } of targets) {
+export async function fetchProposalRecords(snapshot: WpSnapshot): Promise<ProposalRecord[]> {
+  const posts = [...snapshot.draft, ...snapshot.trash, ...snapshot.publish].filter((p) => p.title.includes("AI提案"));
+  const records: ProposalRecord[] = [];
+  for (const p of posts) {
     try {
       const { contentHtml } = await fetchPostContent(p.id);
-      const m = contentHtml.match(/対象:\s*(https?:\/\/[^\s|>]+)/);
-      if (m) set.add(normalizeUrl(m[1]));
+      const url = contentHtml.match(/対象:\s*(https?:\/\/[^\s|>]+)/)?.[1];
+      const date = contentHtml.match(/実行日:\s*(\d{4}-\d{2}-\d{2})/)?.[1] ?? null;
+      const pos = contentHtml.match(/順位([\d.]+)/)?.[1];
+      const ctr = contentHtml.match(/CTR([\d.]+)%/)?.[1];
+      const imp = contentHtml.match(/Imp([\d,]+)/)?.[1];
+      records.push({
+        id: p.id,
+        status: p.status,
+        title: p.title,
+        targetUrl: url ? normalizeUrl(url) : null,
+        runDate: date,
+        before: {
+          position: pos ? Number(pos) : undefined,
+          ctr: ctr ? Number(ctr) / 100 : undefined,
+          impressions: imp ? Number(imp.replace(/,/g, "")) : undefined,
+        },
+      });
     } catch (e) {
-      log.warn(`提案対象URLの抽出に失敗 id=${p.id}`, e instanceof Error ? e.message : String(e));
+      log.warn(`提案記録の抽出に失敗 id=${p.id}`, e instanceof Error ? e.message : String(e));
     }
+  }
+  return records;
+}
+
+/** 提案記録から、重複・却下判定用の対象URL集合を作る（draft=提案済み / trash=却下済み）。 */
+export function proposalTargetsFromRecords(records: ProposalRecord[]): ProposalTargets {
+  const drafted = new Set<string>();
+  const rejected = new Set<string>();
+  for (const r of records) {
+    if (!r.targetUrl) continue;
+    if (r.status === "draft") drafted.add(r.targetUrl);
+    else if (r.status === "trash") rejected.add(r.targetUrl);
   }
   return { drafted, rejected };
 }

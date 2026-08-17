@@ -18,10 +18,11 @@ import { CONFIG } from "./config.ts";
 import { log } from "./util/logger.ts";
 import { fetchGscData } from "./fetch/gsc.ts";
 import { fetchGa4Data } from "./fetch/ga4.ts";
-import { fetchWpSnapshot, fetchProposalTargets, fetchPostContent, createDraft } from "./fetch/wp.ts";
+import { fetchWpSnapshot, fetchProposalRecords, proposalTargetsFromRecords, fetchPostContent, createDraft } from "./fetch/wp.ts";
 import { buildCandidates, sensitivity } from "./analyze/pipeline.ts";
 import { generateDraftsBatch, type GenItem } from "./generate/batch.ts";
 import { generateDraftSync, type GeneratedDraft } from "./generate/draft.ts";
+import { buildWeeklyReport, writeReport } from "./report/summary.ts";
 import type { AnalyzeInput, Candidate } from "./analyze/types.ts";
 
 function line(c: Candidate, i: number): string {
@@ -48,9 +49,11 @@ async function main(): Promise<void> {
   const [gsc, ga4, wp] = await Promise.all([fetchGscData(), fetchGa4Data(), fetchWpSnapshot()]);
   log.info("WP記事数", { publish: wp.publish.length, draft: wp.draft.length, trash: wp.trash.length });
 
-  // 提案本文の `対象:URL` から既提案/却下の対象URLを抽出（タイトル変更に強い重複・却下判定）
-  const proposalTargets = await fetchProposalTargets(wp);
-  log.info("既提案/却下の対象URL", { drafted: proposalTargets.drafted.size, rejected: proposalTargets.rejected.size });
+  // 提案記録（対象URL・実行日・提案時メトリクス）を本文コメントから抽出。
+  // 重複・却下判定（タイトル変更に強い）と週次レポートの両方に使う。
+  const proposalRecords = await fetchProposalRecords(wp);
+  const proposalTargets = proposalTargetsFromRecords(proposalRecords);
+  log.info("既提案/却下の対象URL", { records: proposalRecords.length, drafted: proposalTargets.drafted.size, rejected: proposalTargets.rejected.size });
 
   const input: AnalyzeInput = { gscCurrent: gsc.current, gscPrevious: gsc.previous, ga4, wp, proposalTargets };
   const { counts, allSorted, dedup, n2Excluded } = buildCandidates(input);
@@ -88,6 +91,20 @@ async function main(): Promise<void> {
   console.log("\n■ 閾値感度分析");
   for (const row of sensitivity(input)) {
     console.log(`  ${row.label}:  ${row.variants.map((v) => `${v.value}→${v.count}件`).join("  ")}`);
+  }
+
+  // ── 週次レポート（SEOダイジェスト + リライト効果測定）を Job Summary へ ──
+  try {
+    const report = buildWeeklyReport(
+      gsc.current,
+      gsc.previous,
+      { current: gsc.currentPeriod, previous: gsc.previousPeriod },
+      proposalRecords,
+    );
+    writeReport(report);
+    log.info("週次レポートを出力しました", { to: process.env.GITHUB_STEP_SUMMARY ? "GITHUB_STEP_SUMMARY" : "stdout" });
+  } catch (e) {
+    log.warn("週次レポート生成に失敗（本処理は継続）", e instanceof Error ? e.message : String(e));
   }
 
   // ── DRY_RUN: ここで停止（生成・投稿しない） ──
