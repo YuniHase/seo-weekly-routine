@@ -38,6 +38,14 @@ export async function generateDraftsBatch(items: GenItem[]): Promise<Map<number,
   const start = Date.now();
   while (batch.processing_status !== "ended") {
     if (Date.now() - start > CONFIG.batch.maxWaitMs) {
+      // 宙に浮いたBatchは結果を使わないのでキャンセルして無駄な課金を避ける。
+      // 呼び出し側(index.ts)は例外を受けて同期生成にフォールバックする。
+      try {
+        await client.messages.batches.cancel(batch.id);
+        log.warn("タイムアウトしたBatchをキャンセルしました", { id: batch.id });
+      } catch (e) {
+        log.warn("Batchのキャンセルに失敗（無害）", e instanceof Error ? e.message : String(e));
+      }
       throw new Error(`Batchがタイムアウトしました（${Math.round(CONFIG.batch.maxWaitMs / 1000)}秒）id=${batch.id} status=${batch.processing_status}`);
     }
     await sleep(CONFIG.batch.pollIntervalMs);

@@ -133,15 +133,22 @@ async function main(): Promise<void> {
     }
   }
 
-  // 生成（本番=Batch / USE_BATCH=false=同期）
-  let drafts = new Map<number, GeneratedDraft>();
+  // 生成（本番=Batch・50%オフ / USE_BATCH=false=同期）。
+  // Batchが失敗・タイムアウト（Anthropic側のキュー遅延など）した場合、または個別リクエストが
+  // errored/expired だった場合は、未生成分を同期生成でフォールバックして週次実行を落とさない。
+  const drafts = new Map<number, GeneratedDraft>();
   if (CONFIG.batch.useBatch) {
-    drafts = await generateDraftsBatch(items);
-  } else {
-    for (let i = 0; i < items.length; i++) {
-      try { drafts.set(i, await generateDraftSync(items[i].candidate, items[i].ctx)); }
-      catch (e) { log.error(`同期生成失敗 idx=${i}`, e instanceof Error ? e.message : String(e)); }
+    try {
+      for (const [i, d] of await generateDraftsBatch(items)) drafts.set(i, d);
+    } catch (e) {
+      log.warn("Batch生成が失敗（同期生成にフォールバックします）", e instanceof Error ? e.message : String(e));
     }
+  }
+  for (let i = 0; i < items.length; i++) {
+    if (drafts.has(i)) continue;
+    if (CONFIG.batch.useBatch) log.info(`未生成分を同期生成でフォールバック idx=${i}`);
+    try { drafts.set(i, await generateDraftSync(items[i].candidate, items[i].ctx)); }
+    catch (e) { log.error(`同期生成失敗 idx=${i}`, e instanceof Error ? e.message : String(e)); }
   }
 
   // 投稿（新規下書きPOST。元記事は上書きしない）
