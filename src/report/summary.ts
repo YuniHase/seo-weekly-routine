@@ -90,7 +90,9 @@ function rewriteEffect(gscCurrent: GscRow[], records: ProposalRecord[]): string 
     const ex = byUrl.get(r.targetUrl);
     if (!ex || (r.runDate ?? "") > (ex.runDate ?? "")) byUrl.set(r.targetUrl, r);
   }
-  const statusLabel = (s: string) => (s === "draft" ? "未レビュー" : s === "trash" ? "却下" : "採用/公開");
+  // ゴミ箱の提案は「本文を反映して用済みにした(採用)」場合と「不要と判断した(却下)」場合の
+  // 両方がありうる。WP上で区別できないため、まとめて「対応済み」と表示する。
+  const statusLabel = (s: string) => (s === "draft" ? "未レビュー" : s === "trash" ? "対応済み" : "公開中");
   const list = [...byUrl.values()].sort((a, b) => (b.runDate ?? "").localeCompare(a.runDate ?? ""));
 
   if (list.length === 0) return "## 🛠 リライト効果測定\n_まだ提案記録がありません_\n";
@@ -111,7 +113,7 @@ function rewriteEffect(gscCurrent: GscRow[], records: ProposalRecord[]): string 
   return [
     "## 🛠 リライト効果測定（提案時 → 現在）",
     "> 順位/CTRは提案本文に記録した提案時点の値と、現在のGSC値の比較。🟢=改善 🔴=悪化。",
-    "> ※ リライトが実際に反映（公開）されたかは運用に依存。「却下」は不採用、「未レビュー」は下書き待ちを表す。",
+    "> ※ 状態: 「未レビュー」=下書きのまま / 「対応済み」=ゴミ箱（本文を反映して用済み、または不採用のいずれか）。",
     "",
     "| 記事 | 提案日 | 状態 | 平均順位 | CTR | Imp |",
     "|---|---|---|---|---|---|",
