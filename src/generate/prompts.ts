@@ -12,6 +12,7 @@
  *   R1はタイトル案を3つ提示。出力=本文HTML + 変更点サマリー。
  */
 import type { Candidate } from "../analyze/types.ts";
+import type { AffiliateShortcode } from "../fetch/wp.ts";
 
 export const COMPLIANCE_GUIDE = `あなたはリカバリーウェア専門メディアのSEO編集者です。以下を厳守してください。
 【表現ルール（薬機法・景表法／必ず遵守）】
@@ -30,7 +31,8 @@ export const COMPLIANCE_GUIDE = `あなたはリカバリーウェア専門メ�
 - 結論を先出しし、各見出し直下に要点を1-2文で置く。可能な範囲でQ&A（FAQ）構造を活用する。
 【収益導線（アフィリエイトはAmazon・楽天のみ）】
 - 元記事にあるアフィリエイトリンク（[affi id=x] 等のショートコードやリンク）は**必ず維持**し、削除・改変しない。
-- アフィリエイトのURLやショートコードを**自分で創作しない**（人間が適切な商品リンクを貼る）。
+- アフィリエイトのURLやショートコードを**自分で創作しない**（実在しないIDを書かない）。
+  ただしタスク側で「利用可能なショートコード一覧」が与えられた場合は、その中から文脈に合うものを選んで挿入してよい。
 - 読者が「どれを選べばいいか」判断できる箇所（比較・選び方・まとめ）に、自然な形で
   「最新価格は公式サイト・Amazon・楽天でご確認ください」の導線を置く。押し売りにしない。
 - 判断に迷う読者向けに、比較の観点（用途・着心地・素材など、元記事にある情報のみ）を
@@ -38,7 +40,7 @@ export const COMPLIANCE_GUIDE = `あなたはリカバリーウェア専門メ�
 - 関連する自サイト記事への内部リンクは、元記事にあるものを維持する。`;
 
 /** リライト（§5-1）用ユーザープロンプト。元記事を尊重し改善に徹する。 */
-export function buildRewritePrompt(c: Candidate, originalTitle: string, originalHtml: string): string {
+export function buildRewritePrompt(c: Candidate, originalTitle: string, originalHtml: string, ctxCatalog?: AffiliateShortcode[]): string {
   const m = c.metrics;
   const metrics = [
     m.position !== undefined ? `平均掲載順位 ${m.position.toFixed(1)}位` : null,
@@ -47,15 +49,22 @@ export function buildRewritePrompt(c: Candidate, originalTitle: string, original
     m.clicks !== undefined ? `クリック ${m.clicks}` : null,
   ].filter(Boolean).join(" / ");
 
-  // 元記事にアフィリンクが1本も無い場合だけ、挿入位置のプレースホルダーを明示的に指示する。
-  // （リンク自体はURLを創作できないので、人間が貼れる状態にするのが目的）
+  // 元記事にアフィリンクが無い場合は、サイト内で実在するショートコードから文脈に合うものを
+  // 選んで挿入させる（IDの創作は禁止。カタログが無いときだけプレースホルダーに退避）。
   const hasAffiliate = /\[affi|amzn\.to|a\.r10\.to|amazon\.|rakuten\./i.test(originalHtml);
+  const catalog = ctxCatalog ?? [];
+  const catalogText = catalog
+    .map((s) => `  - ${s.code}（サイト内${s.count}回使用 / 使用記事: ${s.articles.slice(0, 4).join(", ")}）\n      使用例の文脈: ${s.contexts[0] ?? "-"}`)
+    .join("\n");
   const affiliateInstruction = hasAffiliate
     ? "- 本文中のアフィリエイトリンク（[affi id=x] 等）は**位置も含めて必ず維持**する。削除・改変しない。"
-    : "- **この記事にはアフィリエイトリンクが1本も無い。** 商品（BAKUNE・VENEX等）に言及している、" +
-      "または「選び方・まとめ・おすすめ」に相当する文脈を1〜2箇所選び、そこに必ず " +
-      "【要確認: アフィリンク挿入】 というプレースホルダーを置くこと（人間が後で商品リンクを貼る）。" +
-      "URLやショートコードは創作しないこと。";
+    : catalog.length
+      ? `- **この記事にはアフィリエイトリンクが1本も無い。** 商品に言及している箇所や「選び方・まとめ・
+  おすすめ」に相当する文脈を**1〜3箇所**選び、そこに下記リストから**文脈に最も合うショートコードを
+  そのままの文字列で挿入**すること（例: 記事がBAKUNEの話ならBAKUNE系のコード）。
+  **リストに無いIDを創作してはいけない。** 関連の薄い商品を無理に入れない（適切な箇所が無ければ入れない）。
+${catalogText}`
+      : "- この記事にはアフィリエイトリンクが無い。商品に言及する文脈が1〜2箇所あれば 【要確認: アフィリンク挿入】 を置くこと（URL・ショートコードの創作は禁止）。";
 
   return `既存記事を「リライト」して改善してください。改善タイプは ${c.rule} です。
 

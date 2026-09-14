@@ -18,7 +18,7 @@ import { CONFIG } from "./config.ts";
 import { log } from "./util/logger.ts";
 import { fetchGscData } from "./fetch/gsc.ts";
 import { fetchGa4Data, fetchAffiliateClicks } from "./fetch/ga4.ts";
-import { fetchWpSnapshot, fetchProposalRecords, proposalTargetsFromRecords, fetchPostContent, createDraft } from "./fetch/wp.ts";
+import { fetchWpSnapshot, fetchProposalRecords, proposalTargetsFromRecords, fetchAffiliateShortcodes, fetchPostContent, createDraft } from "./fetch/wp.ts";
 import { buildCandidates, sensitivity } from "./analyze/pipeline.ts";
 import { generateDraftsBatch, type GenItem } from "./generate/batch.ts";
 import { generateDraftSync, type GeneratedDraft } from "./generate/draft.ts";
@@ -137,13 +137,16 @@ async function main(): Promise<void> {
     return;
   }
 
+  // アフィリンクが無い記事に実在ショートコードを挿入させるためのカタログ
+  const affiliateCatalog = await fetchAffiliateShortcodes(wp);
+
   // リライトは元記事本文を取得（元記事はGETのみ・変更しない）
   const items: GenItem[] = [];
   for (const c of selected) {
     if (c.type === "rewrite") {
       if (!c.wpPostId) { log.warn("wpPostId未解決のためスキップ", { url: c.targetUrl }); continue; }
       const orig = await fetchPostContent(c.wpPostId);
-      items.push({ candidate: c, ctx: { originalTitle: orig.title, originalHtml: orig.contentHtml } });
+      items.push({ candidate: c, ctx: { originalTitle: orig.title, originalHtml: orig.contentHtml, affiliateCatalog } });
     } else {
       items.push({ candidate: c, ctx: { internalLinkTitles: wp.publish.map((p) => p.title) } });
     }

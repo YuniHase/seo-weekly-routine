@@ -150,6 +150,45 @@ export async function fetchProposalRecords(snapshot: WpSnapshot): Promise<Propos
   return records;
 }
 
+/** サイト内で実際に使われているアフィリエイトショートコードと、その使用文脈 */
+export interface AffiliateShortcode {
+  code: string; // 例: [affi id=4]
+  count: number; // サイト内での使用回数
+  articles: string[]; // 使用している記事スラッグ（最大5件）
+  contexts: string[]; // 直前の文脈（最大2件・商品の推定に使う）
+}
+
+/**
+ * 公開記事を走査して、利用可能なアフィリエイトショートコードのカタログを作る。
+ *
+ * アフィリンクが無い記事のリライト時、Claudeが「文脈に合う既存ショートコード」を
+ * 選んで挿入できるようにするための材料。IDの創作を防ぐため、実在するものだけを渡す。
+ */
+export async function fetchAffiliateShortcodes(snapshot: WpSnapshot): Promise<AffiliateShortcode[]> {
+  const found = new Map<string, { count: number; articles: Set<string>; contexts: string[] }>();
+  for (const p of snapshot.publish) {
+    let html = "";
+    try { html = (await fetchPostContent(p.id)).contentHtml; } catch { continue; }
+    const re = /\[affi[^\]]*\]/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(html))) {
+      const e = found.get(m[0]) ?? { count: 0, articles: new Set<string>(), contexts: [] };
+      e.count++;
+      if (e.articles.size < 5) e.articles.add(p.slug);
+      if (e.contexts.length < 2) {
+        const ctx = html.slice(Math.max(0, m.index - 260), m.index).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(-110);
+        if (ctx) e.contexts.push(ctx);
+      }
+      found.set(m[0], e);
+    }
+  }
+  const list = [...found.entries()]
+    .map(([code, e]) => ({ code, count: e.count, articles: [...e.articles], contexts: e.contexts }))
+    .sort((a, b) => b.count - a.count);
+  log.info("アフィショートコード収集", { kinds: list.length, codes: list.map((l) => l.code).join(",") });
+  return list;
+}
+
 /** 提案記録から、重複・却下判定用の対象URL集合を作る（draft=提案済み / trash=却下済み）。 */
 export function proposalTargetsFromRecords(records: ProposalRecord[]): ProposalTargets {
   const drafted = new Set<string>();

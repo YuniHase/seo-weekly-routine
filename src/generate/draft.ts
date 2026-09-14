@@ -12,11 +12,13 @@ import Anthropic from "@anthropic-ai/sdk";
 import { CONFIG } from "../config.ts";
 import { buildRewritePrompt, buildNewArticlePrompt, COMPLIANCE_GUIDE } from "./prompts.ts";
 import type { Candidate } from "../analyze/types.ts";
+import type { AffiliateShortcode } from "../fetch/wp.ts";
 
 export interface GenContext {
   originalTitle?: string; // リライト元タイトル
   originalHtml?: string; // リライト元本文
   internalLinkTitles?: string[]; // 新規記事の内部リンク候補
+  affiliateCatalog?: AffiliateShortcode[]; // サイト内の実在ショートコード（挿入候補）
 }
 
 export interface GeneratedDraft {
@@ -61,7 +63,7 @@ function extractJson(text: string): Record<string, unknown> {
 export function buildGenParams(c: Candidate, ctx: GenContext) {
   const user =
     c.type === "rewrite"
-      ? buildRewritePrompt(c, ctx.originalTitle ?? "", ctx.originalHtml ?? "")
+      ? buildRewritePrompt(c, ctx.originalTitle ?? "", ctx.originalHtml ?? "", ctx.affiliateCatalog)
       : buildNewArticlePrompt(c, ctx.internalLinkTitles ?? []);
   return {
     model: CONFIG.anthropic.model,
