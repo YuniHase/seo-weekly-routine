@@ -2,15 +2,16 @@
  * 週次レポート生成（GitHub Actions の Job Summary に出力）。
  *
  *  A. 週次SEOダイジェスト: 直近28日 vs 前28日 で、順位/クリックの増減・新規流入クエリを集計。
- *  C. リライト効果測定: AI提案の記録（対象URL・実行日・提案時メトリクス）と現在のGSC値を比較。
+ *  C. リライト効果測定: 提案履歴（data/proposals.json）と現在のGSC値を比較。
  *
- * 追加の保存先は不要（GSCは両期間とも取得済み、提案時メトリクスは下書き本文コメント由来）。
+ * 効果測定の台帳は履歴JSON。WPのゴミ箱は約30日で自動削除されるため、WPは「現在の状態
+ * （未レビューか否か）」の参照元としてのみ使う。
  * 出力は環境変数 GITHUB_STEP_SUMMARY があればそこへ追記、無ければ標準出力。
  */
 import { appendFileSync } from "node:fs";
 import { aggregateByUrl, aggregateByQuery } from "../analyze/aggregate.ts";
-import type { GscRow } from "../analyze/types.ts";
-import type { ProposalRecord } from "../fetch/wp.ts";
+import type { GscRow, WpStatus } from "../analyze/types.ts";
+import type { HistoryEntry } from "../history/store.ts";
 
 interface Periods {
   current: { startDate: string; endDate: string };
@@ -80,40 +81,40 @@ function seoDigest(gscCurrent: GscRow[], gscPrevious: GscRow[]): string {
   ].join("\n");
 }
 
-/** C. リライト効果測定（提案時 vs 現在） */
-function rewriteEffect(gscCurrent: GscRow[], records: ProposalRecord[]): string {
+/** C. リライト効果測定（提案時 vs 現在）。台帳は履歴JSON、WPは現在の状態の参照元。 */
+function rewriteEffect(gscCurrent: GscRow[], history: HistoryEntry[], statusByUrl: Map<string, WpStatus>): string {
   const cur = aggregateByUrl(gscCurrent);
-  // 同一URLは最新の提案（runDate最大）を採用
-  const byUrl = new Map<string, ProposalRecord>();
-  for (const r of records) {
+  // 同一URLは最新の提案（runDate最大）を代表として表示
+  const byUrl = new Map<string, HistoryEntry>();
+  for (const r of history) {
     if (!r.targetUrl) continue;
     const ex = byUrl.get(r.targetUrl);
     if (!ex || (r.runDate ?? "") > (ex.runDate ?? "")) byUrl.set(r.targetUrl, r);
   }
-  // ゴミ箱の提案は「本文を反映して用済みにした(採用)」場合と「不要と判断した(却下)」場合の
-  // 両方がありうる。WP上で区別できないため、まとめて「対応済み」と表示する。
-  const statusLabel = (s: string) => (s === "draft" ? "未レビュー" : s === "trash" ? "対応済み" : "公開中");
+  // WPに下書きとして残っていれば未レビュー。ゴミ箱/30日経過で削除済みは「対応済み」。
+  const statusLabel = (url: string) => (statusByUrl.get(url) === "draft" ? "未レビュー" : "対応済み");
   const list = [...byUrl.values()].sort((a, b) => (b.runDate ?? "").localeCompare(a.runDate ?? ""));
 
   if (list.length === 0) return "## 🛠 リライト効果測定\n_まだ提案記録がありません_\n";
 
   const rows = list.map((r) => {
-    const a = cur.get(r.targetUrl!);
-    const bPos = r.before.position, aPos = a?.position;
-    const bCtr = r.before.ctr, aCtr = a?.ctr;
-    const bImp = r.before.impressions, aImp = a?.impressions;
+    const a = cur.get(r.targetUrl);
+    const bPos = r.before?.position, aPos = a?.position;
+    const bCtr = r.before?.ctr, aCtr = a?.ctr;
+    const bImp = r.before?.impressions, aImp = a?.impressions;
     const dPos = bPos !== undefined && aPos !== undefined ? bPos - aPos : undefined; // 正=改善
     const dCtr = bCtr !== undefined && aCtr !== undefined ? aCtr - bCtr : undefined;
     const posCell = `${pos(bPos)} → ${pos(aPos)} ${dPos !== undefined ? arrow(dPos) : ""}`;
     const ctrCell = `${pct(bCtr)} → ${pct(aCtr)} ${dCtr !== undefined ? arrow(dCtr) : ""}`;
     const impCell = `${bImp ?? "-"} → ${aImp ?? "-"}`;
-    return `| \`${path(r.targetUrl!)}\` | ${r.runDate ?? "-"} | ${statusLabel(r.status)} | ${posCell} | ${ctrCell} | ${impCell} |`;
+    return `| \`${path(r.targetUrl)}\` | ${r.runDate ?? "-"} | ${statusLabel(r.targetUrl)} | ${posCell} | ${ctrCell} | ${impCell} |`;
   });
 
   return [
     "## 🛠 リライト効果測定（提案時 → 現在）",
-    "> 順位/CTRは提案本文に記録した提案時点の値と、現在のGSC値の比較。🟢=改善 🔴=悪化。",
-    "> ※ 状態: 「未レビュー」=下書きのまま / 「対応済み」=ゴミ箱（本文を反映して用済み、または不採用のいずれか）。",
+    "> 順位/CTRは提案時に記録した値と、現在のGSC値の比較。🟢=改善 🔴=悪化。",
+    "> ※ 状態: 「未レビュー」=WPに下書きとして残存 / 「対応済み」=リライト反映後にゴミ箱へ（30日経過で自動削除済みも含む）。",
+    "> ※ 履歴は `data/proposals.json` に永続化。WPのゴミ箱が30日で消えても記録は残ります。",
     "",
     "| 記事 | 提案日 | 状態 | 平均順位 | CTR | Imp |",
     "|---|---|---|---|---|---|",
@@ -122,14 +123,20 @@ function rewriteEffect(gscCurrent: GscRow[], records: ProposalRecord[]): string 
   ].join("\n");
 }
 
-export function buildWeeklyReport(gscCurrent: GscRow[], gscPrevious: GscRow[], periods: Periods, records: ProposalRecord[]): string {
+export function buildWeeklyReport(
+  gscCurrent: GscRow[],
+  gscPrevious: GscRow[],
+  periods: Periods,
+  history: HistoryEntry[],
+  statusByUrl: Map<string, WpStatus>,
+): string {
   return [
     `# 週次レポート（${periods.current.startDate}〜${periods.current.endDate}）`,
     `対象サイト分析: 直近28日 vs 前28日（${periods.previous.startDate}〜${periods.previous.endDate}）`,
     "",
     seoDigest(gscCurrent, gscPrevious),
     "",
-    rewriteEffect(gscCurrent, records),
+    rewriteEffect(gscCurrent, history, statusByUrl),
   ].join("\n");
 }
 

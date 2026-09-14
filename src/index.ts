@@ -23,6 +23,7 @@ import { buildCandidates, sensitivity } from "./analyze/pipeline.ts";
 import { generateDraftsBatch, type GenItem } from "./generate/batch.ts";
 import { generateDraftSync, type GeneratedDraft } from "./generate/draft.ts";
 import { buildWeeklyReport, writeReport } from "./report/summary.ts";
+import { loadHistory, saveHistory, mergeHistory, type HistoryEntry } from "./history/store.ts";
 import type { AnalyzeInput, Candidate } from "./analyze/types.ts";
 
 function line(c: Candidate, i: number): string {
@@ -54,6 +55,16 @@ async function main(): Promise<void> {
   const proposalRecords = await fetchProposalRecords(wp);
   const proposalTargets = proposalTargetsFromRecords(proposalRecords);
   log.info("既提案/却下の対象URL", { records: proposalRecords.length, drafted: proposalTargets.drafted.size, rejected: proposalTargets.rejected.size });
+
+  // 提案履歴（恒久台帳）を読み、WP上に残っている提案記録を取り込む。
+  // WPのゴミ箱は約30日で消えるため、消える前にJSONへ写しておくことで効果測定の履歴が残る。
+  const history0 = loadHistory();
+  const fromWp: HistoryEntry[] = proposalRecords
+    .filter((r) => r.targetUrl && r.runDate)
+    .map((r) => ({ runDate: r.runDate!, targetUrl: r.targetUrl!, wpDraftId: r.id, title: r.title, before: r.before }));
+  const { merged: history1, added: addedFromWp } = mergeHistory(history0, fromWp);
+  if (addedFromWp > 0) log.info("WPの提案記録を履歴に取り込みました", { added: addedFromWp });
+  const statusByUrl = new Map(proposalRecords.filter((r) => r.targetUrl).map((r) => [r.targetUrl!, r.status] as const));
 
   const input: AnalyzeInput = { gscCurrent: gsc.current, gscPrevious: gsc.previous, ga4, wp, proposalTargets };
   const { counts, allSorted, dedup, n2Excluded } = buildCandidates(input);
@@ -99,7 +110,8 @@ async function main(): Promise<void> {
       gsc.current,
       gsc.previous,
       { current: gsc.currentPeriod, previous: gsc.previousPeriod },
-      proposalRecords,
+      history1,
+      statusByUrl,
     );
     writeReport(report);
     log.info("週次レポートを出力しました", { to: process.env.GITHUB_STEP_SUMMARY ? "GITHUB_STEP_SUMMARY" : "stdout" });
@@ -109,6 +121,7 @@ async function main(): Promise<void> {
 
   // ── DRY_RUN: ここで停止（生成・投稿しない） ──
   if (CONFIG.run.dryRun) {
+    saveHistory(history1);
     console.log(`\n[DRY_RUN] 生成・投稿はスキップ。上記 ${selected.length} 件が今週の生成対象です。`);
     console.log("========== DRY_RUN 終了 ==========\n");
     log.info("SEO週次ルーチン終了（DRY_RUN）", { durationSec: Math.round((Date.now() - startedAt) / 1000), wouldCreate: selected.length });
@@ -117,6 +130,7 @@ async function main(): Promise<void> {
 
   // ── 本番: 生成 → 新規下書き投稿 ──
   if (selected.length === 0) {
+    saveHistory(history1);
     log.info("生成対象なし。終了。");
     return;
   }
@@ -154,6 +168,7 @@ async function main(): Promise<void> {
   // 投稿（新規下書きPOST。元記事は上書きしない）
   let created = 0, failed = 0;
   let inTok = 0, outTok = 0;
+  const newEntries: HistoryEntry[] = [];
   for (let i = 0; i < items.length; i++) {
     const d = drafts.get(i);
     const c = items[i].candidate;
@@ -162,12 +177,25 @@ async function main(): Promise<void> {
     try {
       const res = await createDraft({ title: d.title, contentHtml: d.contentHtml });
       created++;
+      newEntries.push({
+        runDate: new Date().toISOString().slice(0, 10),
+        targetUrl: c.targetUrl ?? "",
+        rule: c.rule,
+        wpDraftId: res.id,
+        title: d.title,
+        before: { position: c.metrics.position, ctr: c.metrics.ctr, impressions: c.metrics.impressions },
+      });
       log.info("下書き投稿", { id: res.id, rule: c.rule, title: d.title, editLink: res.editLink });
     } catch (e) {
       failed++;
       log.error("下書き投稿失敗", { url: c.targetUrl ?? c.queries[0], error: e instanceof Error ? e.message : String(e) });
     }
   }
+
+  // 今回作成した下書きを恒久履歴に追記（WPのゴミ箱30日削除に影響されない台帳）
+  const { merged: history2, added } = mergeHistory(history1, newEntries);
+  saveHistory(history2);
+  if (added > 0) log.info("提案履歴を更新しました", { file: "data/proposals.json", added, total: history2.length });
 
   const durationSec = Math.round((Date.now() - startedAt) / 1000);
   log.info("実行サマリー", {

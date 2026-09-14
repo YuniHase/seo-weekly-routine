@@ -9,6 +9,10 @@ on:
     - cron: '0 22 * * 0'
   workflow_dispatch: {}
 
+# 提案履歴(data/proposals.json)をコミットで積み上げるため書き込み権限が必要。
+permissions:
+  contents: write
+
 jobs:
   run:
     # Ubuntu(Linux)のみ使用。macOS/Windowsは無料枠の消費が激しいので使わない。
@@ -35,3 +39,16 @@ jobs:
           LOOKBACK_DAYS: ${{ vars.LOOKBACK_DAYS }}
           DRY_RUN: ${{ vars.DRY_RUN }}
           USE_BATCH: ${{ vars.USE_BATCH }}
+
+      # 提案履歴を永続化（WPのゴミ箱は約30日で消えるため、台帳はリポジトリで保持）
+      - name: Commit proposal history
+        run: |
+          if [ -n "$(git status --porcelain data/proposals.json)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add data/proposals.json
+            git commit -m "chore: 提案履歴を更新 [skip ci]"
+            git push
+          else
+            echo "提案履歴に変更なし"
+          fi
