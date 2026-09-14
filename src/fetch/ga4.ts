@@ -8,7 +8,7 @@ import { CONFIG } from "../config.ts";
 import { getGoogleAuth } from "./googleAuth.ts";
 import { analysisPeriods } from "../util/dateRange.ts";
 import { log } from "../util/logger.ts";
-import type { Ga4Row } from "../analyze/types.ts";
+import type { Ga4Row, AffiliateClicks } from "../analyze/types.ts";
 
 export async function fetchGa4Data(): Promise<Ga4Row[]> {
   const { current } = analysisPeriods(CONFIG.run.lookbackDays, CONFIG.run.dataDelayDays);
@@ -36,4 +36,41 @@ export async function fetchGa4Data(): Promise<Ga4Row[]> {
   }));
   log.info("GA4取得完了", { rows: mapped.length });
   return mapped;
+}
+
+
+/**
+ * アフィリエイトリンクのクリック数を記事別に取得する（GA4の拡張計測「外部リンククリック」）。
+ *
+ * 実売上はAmazon/楽天ともAPIが無く記事別にも紐づかないため、GA4の外部リンククリックを
+ * 収益の代理指標として使う。amzn.to / a.r10.to / hb.afl.rakuten.co.jp 等を集計。
+ */
+export async function fetchAffiliateClicks(): Promise<Map<string, AffiliateClicks>> {
+  const { current } = analysisPeriods(CONFIG.run.lookbackDays, CONFIG.run.dataDelayDays);
+  const data = google.analyticsdata({ version: "v1beta", auth: getGoogleAuth() });
+  const res = await data.properties.runReport({
+    property: `properties/${CONFIG.google.ga4PropertyId}`,
+    requestBody: {
+      dateRanges: [{ startDate: current.startDate, endDate: current.endDate }],
+      dimensions: [{ name: "pagePath" }, { name: "linkDomain" }],
+      metrics: [{ name: "eventCount" }],
+      dimensionFilter: { filter: { fieldName: "eventName", stringFilter: { value: "click" } } },
+      limit: "10000",
+    },
+  });
+  const out = new Map<string, AffiliateClicks>();
+  for (const r of res.data.rows ?? []) {
+    const path = (r.dimensionValues?.[0]?.value ?? "").replace(/\/+$/, "") || "/";
+    const domain = (r.dimensionValues?.[1]?.value ?? "").toLowerCase();
+    const n = Number(r.metricValues?.[0]?.value ?? 0);
+    const isAmazon = domain.includes("amzn.to") || domain.includes("amazon.");
+    const isRakuten = domain.includes("r10.to") || domain.includes("rakuten.");
+    if (!isAmazon && !isRakuten) continue;
+    const cur = out.get(path) ?? { amazon: 0, rakuten: 0, total: 0 };
+    if (isAmazon) cur.amazon += n; else cur.rakuten += n;
+    cur.total += n;
+    out.set(path, cur);
+  }
+  log.info("アフィリンククリック取得完了", { pages: out.size, total: [...out.values()].reduce((s, v) => s + v.total, 0) });
+  return out;
 }

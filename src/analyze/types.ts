@@ -20,6 +20,13 @@ export interface Ga4Row {
   averageSessionDuration: number; // 秒
 }
 
+/** 記事別のアフィリエイトリンククリック数（収益の代理指標） */
+export interface AffiliateClicks {
+  amazon: number;
+  rakuten: number;
+  total: number;
+}
+
 /** WP記事の最小情報（URL→記事IDマッピング / 重複・却下判定用） */
 export interface WpPostRef {
   id: number;
@@ -84,4 +91,6 @@ export interface AnalyzeInput {
   wp: WpSnapshot;
   /** 提案本文から抽出した既提案/却下の対象URL（タイトル変更に強い判定用） */
   proposalTargets?: ProposalTargets;
+  /** 記事パス→アフィリンククリック数（収益ポテンシャルの算出に使う） */
+  affiliate?: Map<string, AffiliateClicks>;
 }

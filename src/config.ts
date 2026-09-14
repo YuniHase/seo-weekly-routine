@@ -20,6 +20,13 @@ function int(name: string, fallback: number): number {
   return n;
 }
 
+function num(name: string, fallback: number): number {
+  const v = process.env[name];
+  if (v === undefined || v === "") return fallback;
+  const n = Number.parseFloat(v);
+  return Number.isNaN(n) ? fallback : n;
+}
+
 function bool(name: string, fallback: boolean): boolean {
   const v = process.env[name];
   if (v === undefined || v === "") return fallback;
@@ -50,6 +57,8 @@ export const CONFIG = {
     lookbackDays: int("LOOKBACK_DAYS", 28),
     dataDelayDays: int("DATA_DELAY_DAYS", 3),
     dryRun: bool("DRY_RUN", true),
+    // 収益重み: アフィクリックの伸びしろをスコアにどれだけ反映するか（0=無効, 1=最大2倍）
+    revenueWeight: num("REVENUE_WEIGHT", 1),
   },
   batch: {
     // 本番は Batch API（50%オフ・非同期）。USE_BATCH=false で同期に切替（デバッグ用）。

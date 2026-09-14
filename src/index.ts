@@ -17,7 +17,7 @@
 import { CONFIG } from "./config.ts";
 import { log } from "./util/logger.ts";
 import { fetchGscData } from "./fetch/gsc.ts";
-import { fetchGa4Data } from "./fetch/ga4.ts";
+import { fetchGa4Data, fetchAffiliateClicks } from "./fetch/ga4.ts";
 import { fetchWpSnapshot, fetchProposalRecords, proposalTargetsFromRecords, fetchPostContent, createDraft } from "./fetch/wp.ts";
 import { buildCandidates, sensitivity } from "./analyze/pipeline.ts";
 import { generateDraftsBatch, type GenItem } from "./generate/batch.ts";
@@ -47,7 +47,7 @@ async function main(): Promise<void> {
     lookbackDays: CONFIG.run.lookbackDays,
   });
 
-  const [gsc, ga4, wp] = await Promise.all([fetchGscData(), fetchGa4Data(), fetchWpSnapshot()]);
+  const [gsc, ga4, wp, affiliate] = await Promise.all([fetchGscData(), fetchGa4Data(), fetchWpSnapshot(), fetchAffiliateClicks()]);
   log.info("WP記事数", { publish: wp.publish.length, draft: wp.draft.length, trash: wp.trash.length });
 
   // 提案記録（対象URL・実行日・提案時メトリクス）を本文コメントから抽出。
@@ -66,7 +66,7 @@ async function main(): Promise<void> {
   if (addedFromWp > 0) log.info("WPの提案記録を履歴に取り込みました", { added: addedFromWp });
   const statusByUrl = new Map(proposalRecords.filter((r) => r.targetUrl).map((r) => [r.targetUrl!, r.status] as const));
 
-  const input: AnalyzeInput = { gscCurrent: gsc.current, gscPrevious: gsc.previous, ga4, wp, proposalTargets };
+  const input: AnalyzeInput = { gscCurrent: gsc.current, gscPrevious: gsc.previous, ga4, wp, proposalTargets, affiliate };
   const { counts, allSorted, dedup, n2Excluded } = buildCandidates(input);
 
   console.log("\n========== 候補抽出サマリー ==========");
@@ -112,6 +112,8 @@ async function main(): Promise<void> {
       { current: gsc.currentPeriod, previous: gsc.previousPeriod },
       history1,
       statusByUrl,
+      ga4,
+      affiliate,
     );
     writeReport(report);
     log.info("週次レポートを出力しました", { to: process.env.GITHUB_STEP_SUMMARY ? "GITHUB_STEP_SUMMARY" : "stdout" });

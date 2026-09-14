@@ -9,8 +9,9 @@
  * URL照合は aggregate 側で normalizeUrl 済み。
  */
 import type { UrlAgg } from "./aggregate.ts";
-import type { Ga4Row, Candidate, RewriteRule, WpPostRef } from "./types.ts";
+import type { Ga4Row, Candidate, RewriteRule, WpPostRef, AffiliateClicks } from "./types.ts";
 import type { Thresholds } from "./thresholds.ts";
+import { CONFIG } from "../config.ts";
 
 export interface RewriteResult {
   candidates: Candidate[];
@@ -33,18 +34,65 @@ function gaWeight(ga4ByPath: Map<string, Ga4Row>, url: string): number {
   return 1 + Math.max(0, 0.6 - g.engagementRate);
 }
 
+/**
+ * 収益ポテンシャル（＝リライトで増やせそうなアフィリンククリック数の推定）。
+ *
+ * 「集客はあるが稼げていない記事」と「稼げるが集客が少ない記事」の両方を拾うため、
+ * 2つのレバーを足し合わせる:
+ *   ① 導線改善: 現在のセッション × (目標アフィクリック率 − 現在の率)
+ *   ② 集客改善: 現在のアフィクリック率 × SEO改善で見込めるセッション増
+ *      （セッション増 ≒ Imp × (目標CTR − 現在のCTR)）
+ * 実売上はAmazon/楽天とも記事別に取得できないため、アフィリンククリックを代理指標とする。
+ */
+function revenuePotential(
+  a: UrlAgg,
+  ga4ByPath: Map<string, Ga4Row>,
+  affByPath: Map<string, AffiliateClicks>,
+  targetAffRate: number,
+): { potential: number; affClicks: number; affRate: number; sessions: number } {
+  const p = pathOf(a.url);
+  const sessions = ga4ByPath.get(p)?.sessions ?? 0;
+  const affClicks = affByPath.get(p)?.total ?? 0;
+  const affRate = sessions > 0 ? affClicks / sessions : 0;
+
+  // ① 導線改善の余地（今の流入をもっとマネタイズできる分）
+  const leverFunnel = sessions * Math.max(0, targetAffRate - affRate);
+  // ② 集客改善の余地（今の収益効率のまま流入が増えた分）
+  const TARGET_CTR = 0.05;
+  const sessionGain = a.impressions * Math.max(0, TARGET_CTR - a.ctr);
+  const leverTraffic = affRate * sessionGain;
+
+  return { potential: leverFunnel + leverTraffic, affClicks, affRate, sessions };
+}
+
 export function extractRewriteCandidates(
   current: Map<string, UrlAgg>,
   previous: Map<string, UrlAgg>,
   ga4: Ga4Row[],
   publishByUrl: Map<string, WpPostRef>,
   th: Thresholds,
+  affiliate?: Map<string, AffiliateClicks>,
 ): RewriteResult {
   const ga4ByPath = new Map<string, Ga4Row>();
   for (const g of ga4) ga4ByPath.set(g.pagePath.replace(/\/+$/, "") || "/", g);
+  const affByPath = affiliate ?? new Map<string, AffiliateClicks>();
+
+  // 目標アフィクリック率 = サイト内の優秀な記事の水準（上位25%）。到達可能な現実的目標。
+  const rates = [...current.keys()]
+    .map((u) => {
+      const p = pathOf(u);
+      const s = ga4ByPath.get(p)?.sessions ?? 0;
+      return s > 0 ? (affByPath.get(p)?.total ?? 0) / s : null;
+    })
+    .filter((v): v is number => v !== null && v > 0)
+    .sort((a, b) => b - a);
+  const targetAffRate = rates.length ? rates[Math.floor(rates.length * 0.25)] ?? rates[0] : 0;
 
   const counts: Record<RewriteRule, number> = { R1: 0, R2: 0, R3: 0 };
   const byUrl = new Map<string, Candidate>();
+  const potentials = new Map<string, ReturnType<typeof revenuePotential>>();
+  for (const [url, a] of current) potentials.set(url, revenuePotential(a, ga4ByPath, affByPath, targetAffRate));
+  const maxPotential = Math.max(1e-9, ...[...potentials.values()].map((p) => p.potential));
 
   for (const [url, a] of current) {
     const prev = previous.get(url);
@@ -73,11 +121,19 @@ export function extractRewriteCandidates(
     }
     if (!rule) continue;
 
-    const score = Math.round(a.impressions * factor * w * 100) / 100;
+    // 収益重み: 収益ポテンシャルが大きい記事ほどスコアを押し上げる（最大 1+REVENUE_WEIGHT 倍）
+    const rp = potentials.get(url)!;
+    const revenueMultiplier = 1 + CONFIG.run.revenueWeight * (rp.potential / maxPotential);
+
+    const score = Math.round(a.impressions * factor * w * revenueMultiplier * 100) / 100;
     const topQueries = a.queries.slice(0, 4).map((q) => q.query);
     const post = publishByUrl.get(url);
+    const revenueNote =
+      ` | 収益: アフィclick${rp.affClicks} (率${(rp.affRate * 100).toFixed(2)}%/セッション${rp.sessions})` +
+      ` 伸びしろ${rp.potential.toFixed(1)}click ×${revenueMultiplier.toFixed(2)}`;
     const reason =
       `${rule} | ${url} | 順位${a.position.toFixed(1)} CTR${(a.ctr * 100).toFixed(1)}% Imp${a.impressions} クリック${a.clicks}` +
+      revenueNote +
       (rule === "R2" ? ` | 前期比 順位${positionDelta >= 0 ? "+" : ""}${positionDelta.toFixed(1)}悪化(前期クリック${prev?.clicks})` : "") +
       (ga4ByPath.get(pathOf(url)) ? ` | GA4 eng${(ga4ByPath.get(pathOf(url))!.engagementRate * 100).toFixed(0)}%` : "") +
       ` | 対象クエリ: ${topQueries.map((q) => `"${q}"`).join(", ")}`;

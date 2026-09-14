@@ -10,7 +10,7 @@
  */
 import { appendFileSync } from "node:fs";
 import { aggregateByUrl, aggregateByQuery } from "../analyze/aggregate.ts";
-import type { GscRow, WpStatus } from "../analyze/types.ts";
+import type { GscRow, WpStatus, Ga4Row, AffiliateClicks } from "../analyze/types.ts";
 import type { HistoryEntry } from "../history/store.ts";
 
 interface Periods {
@@ -123,16 +123,52 @@ function rewriteEffect(gscCurrent: GscRow[], history: HistoryEntry[], statusByUr
   ].join("\n");
 }
 
+/** B. 収益（アフィリエイトリンククリック）セクション */
+function revenueSection(gscCurrent: GscRow[], ga4: Ga4Row[], affiliate: Map<string, AffiliateClicks>): string {
+  if (affiliate.size === 0) return "## 💰 収益（アフィリンククリック）\n_計測データがありません_\n";
+  const cur = aggregateByUrl(gscCurrent);
+  const impByPath = new Map<string, number>();
+  for (const [url, a] of cur) impByPath.set(path(url), a.impressions);
+  const sessByPath = new Map<string, number>();
+  for (const g of ga4) sessByPath.set(g.pagePath.replace(/\/+$/, "") || "/", g.sessions);
+
+  const rows = [...affiliate.entries()]
+    .map(([p, c]) => {
+      const sessions = sessByPath.get(p) ?? 0;
+      return { p, ...c, sessions, imp: impByPath.get(p) ?? 0, rate: sessions > 0 ? c.total / sessions : 0 };
+    })
+    .sort((a, b) => b.total - a.total);
+  const totalClicks = rows.reduce((s, r) => s + r.total, 0);
+  const totalSessions = rows.reduce((s, r) => s + r.sessions, 0);
+
+  return [
+    "## 💰 収益（アフィリンククリック）",
+    `> 期間内の合計 **${totalClicks}クリック**（Amazon ${rows.reduce((s, r) => s + r.amazon, 0)} / 楽天 ${rows.reduce((s, r) => s + r.rakuten, 0)}）。`,
+    "> ※ GA4の外部リンククリック計測。実売上ではなく収益の代理指標（Amazon/楽天とも記事別の実売上APIが無いため）。",
+    "> 「率」= アフィクリック ÷ セッション。率が低く流入が多い記事＝**導線改善の余地**、率が高く流入が少ない記事＝**集客強化の余地**。",
+    "",
+    "| 記事 | Amazon | 楽天 | 計 | セッション | 率 | GSC Imp |",
+    "|---|---|---|---|---|---|---|",
+    ...rows.map((r) => `| \`${r.p}\` | ${r.amazon} | ${r.rakuten} | **${r.total}** | ${r.sessions} | ${(r.rate * 100).toFixed(1)}% | ${r.imp} |`),
+    `| **合計** | | | **${totalClicks}** | ${totalSessions} | ${totalSessions ? ((totalClicks / totalSessions) * 100).toFixed(1) : "0.0"}% | |`,
+    "",
+  ].join("\n");
+}
+
 export function buildWeeklyReport(
   gscCurrent: GscRow[],
   gscPrevious: GscRow[],
   periods: Periods,
   history: HistoryEntry[],
   statusByUrl: Map<string, WpStatus>,
+  ga4: Ga4Row[] = [],
+  affiliate: Map<string, AffiliateClicks> = new Map(),
 ): string {
   return [
     `# 週次レポート（${periods.current.startDate}〜${periods.current.endDate}）`,
     `対象サイト分析: 直近28日 vs 前28日（${periods.previous.startDate}〜${periods.previous.endDate}）`,
+    "",
+    revenueSection(gscCurrent, ga4, affiliate),
     "",
     seoDigest(gscCurrent, gscPrevious),
     "",

@@ -33,7 +33,7 @@ function extractWith(
   homeUrl: string,
   th: Thresholds,
 ) {
-  const rw = extractRewriteCandidates(current, previous, input.ga4, publishByUrl, th);
+  const rw = extractRewriteCandidates(current, previous, input.ga4, publishByUrl, th, input.affiliate);
   const nw = extractNewArticleCandidates(byQuery, current, publishByUrl, homeUrl, th);
   return { rw, nw };
 }
