@@ -1,5 +1,41 @@
 [
   {
+    "runDate": "2026-09-14",
+    "targetUrl": "https://recovery-wear-guide.com/howtowash-recoverywear",
+    "rule": "R1",
+    "wpDraftId": 529,
+    "title": "【AI提案/リライト】リカバリーウェアは乾燥機NG？洗濯で効果が落ちるか・毎日洗う頻度を解説【洗い方まとめ】",
+    "before": {
+      "position": 7.00201106083459,
+      "ctr": 0.012066365007541479,
+      "impressions": 1989
+    }
+  },
+  {
+    "runDate": "2026-09-14",
+    "targetUrl": "https://recovery-wear-guide.com/recoverywear_lifespan",
+    "rule": "R1",
+    "wpDraftId": 530,
+    "title": "【AI提案/リライト】リカバリーウェアの効果はいつまで？寿命の目安「1〜2年」と買い替えサイン",
+    "before": {
+      "position": 4.817204301075269,
+      "ctr": 0.013056835637480798,
+      "impressions": 1302
+    }
+  },
+  {
+    "runDate": "2026-09-14",
+    "targetUrl": "https://recovery-wear-guide.com/recoverywear-suitable",
+    "rule": "R1",
+    "wpDraftId": 528,
+    "title": "【AI提案/リライト】リカバリーウェア「着てはいけない人」はいる？デメリット・合わない人の共通点を解説",
+    "before": {
+      "position": 6.01764455782313,
+      "ctr": 0.01679421768707483,
+      "impressions": 4704
+    }
+  },
+  {
     "runDate": "2026-09-06",
     "targetUrl": "https://recovery-wear-guide.com/recoverywear-size",
     "wpDraftId": 524,
