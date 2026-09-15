@@ -50,7 +50,7 @@ export interface WpSnapshot {
   trash: WpPostRef[];
 }
 
-export type RewriteRule = "R1" | "R2" | "R3";
+export type RewriteRule = "R1" | "R2" | "R3" | "R4";
 export type NewRule = "N1" | "N2";
 
 /** 抽出された候補（リライト or 新規） */

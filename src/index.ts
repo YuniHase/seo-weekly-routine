@@ -73,7 +73,7 @@ async function main(): Promise<void> {
   console.log(`分析期間: current ${gsc.currentPeriod.startDate}〜${gsc.currentPeriod.endDate} / previous ${gsc.previousPeriod.startDate}〜${gsc.previousPeriod.endDate}`);
   console.log(`データ規模: GSC current=${gsc.current.length}行 previous=${gsc.previous.length}行 / GA4 ${ga4.length}行 / WP publish=${wp.publish.length} draft=${wp.draft.length} trash=${wp.trash.length}`);
   console.log("\n■ 各ルールの閾値通過件数（重複カウント可・dedup前）");
-  console.log(`  リライト: R1=${counts.R1}  R2=${counts.R2}  R3=${counts.R3}`);
+  console.log(`  リライト: R1=${counts.R1}  R2=${counts.R2}  R3=${counts.R3}  R4=${counts.R4}`);
   console.log(`  新規:     N1=${counts.N1}  N2=${counts.N2}（N2は要Claude判断）`);
   if (n2Excluded.length > 0) {
     console.log(`  ※ N2追加フィルタ(Option B)で除外: ${n2Excluded.length}件（カニバリ回避）`);

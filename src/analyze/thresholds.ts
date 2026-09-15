@@ -5,6 +5,7 @@ export interface Thresholds {
   r1: { maxPosition: number; maxCtr: number; minImpressions: number };
   r2: { minPositionDrop: number; minPrevClicks: number };
   r3: { minPosition: number; maxPosition: number; minImpressions: number };
+  r4: { minSessions: number };
   n1: { minImpressions: number };
   n2: { minClusterImpressions: number; minClusters: number; excludeIfPublishedRankWithin: number };
 }
@@ -17,6 +18,8 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   r2: { minPositionDrop: 3, minPrevClicks: 10 },
   // R3: 平均順位 11〜20 かつ Imp ≥ 100（レビューで 300→100 に緩和。小規模サイト実態に合わせる）
   r3: { minPosition: 11, maxPosition: 20, minImpressions: 100 },
+  // R4: セッション ≥ 50 かつ アフィクリック率がサイト平均未満（流入はあるが収益導線が弱い）
+  r4: { minSessions: 50 },
   // N1: クエリImp ≥ 100 かつ 受け皿が専用記事でない
   n1: { minImpressions: 100 },
   // N2(ヒューリスティック): 1記事に検索意図の異なるクラスタが複数。

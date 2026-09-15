@@ -4,8 +4,12 @@
  *  R1: 順位≤10 かつ CTR<3% かつ Imp≥200        （露出はあるがクリックされない）
  *  R2: 前期比で平均順位が3以上悪化 かつ 前期クリック≥10（稼いでいた記事の劣化）
  *  R3: 平均順位 11〜20 かつ Imp≥300              （2ページ目→1ページ目の押し上げ）
+ *  R4: セッション≥50 かつ アフィ率 < サイト平均  （流入はあるが収益導線が弱い）
  *
- * スコア = インプレッション × 順位改善余地 × GA4重み（低エンゲージメント記事を優先）。
+ * R4はR1〜R3と独立。順位・CTRが健全なせいで既存ルールに当たらないまま
+ * 収益化されていない記事（例: 流入はあるがアフィリンクが機能していない記事）を拾う。
+ *
+ * スコア = インプレッション × 改善余地 × GA4重み（低エンゲージメント記事を優先）。
  * URL照合は aggregate 側で normalizeUrl 済み。
  */
 import type { UrlAgg } from "./aggregate.ts";
@@ -88,7 +92,15 @@ export function extractRewriteCandidates(
     .sort((a, b) => b - a);
   const targetAffRate = rates.length ? rates[Math.floor(rates.length * 0.25)] ?? rates[0] : 0;
 
-  const counts: Record<RewriteRule, number> = { R1: 0, R2: 0, R3: 0 };
+  // サイト平均アフィクリック率。R4「導線が弱い記事」の判定基準。
+  let totalAff = 0, totalSessions = 0;
+  for (const [p, g] of ga4ByPath) {
+    totalSessions += g.sessions;
+    totalAff += affByPath.get(p)?.total ?? 0;
+  }
+  const siteAvgAffRate = totalSessions > 0 ? totalAff / totalSessions : 0;
+
+  const counts: Record<RewriteRule, number> = { R1: 0, R2: 0, R3: 0, R4: 0 };
   const byUrl = new Map<string, Candidate>();
   const potentials = new Map<string, ReturnType<typeof revenuePotential>>();
   for (const [url, a] of current) potentials.set(url, revenuePotential(a, ga4ByPath, affByPath, targetAffRate));
@@ -102,6 +114,14 @@ export function extractRewriteCandidates(
     const hitR1 = a.position <= th.r1.maxPosition && a.ctr < th.r1.maxCtr && a.impressions >= th.r1.minImpressions;
     const hitR2 = !!prev && positionDelta >= th.r2.minPositionDrop && prev.clicks >= th.r2.minPrevClicks;
     const hitR3 = a.position >= th.r3.minPosition && a.position <= th.r3.maxPosition && a.impressions >= th.r3.minImpressions;
+    // R4: 流入はあるのにアフィクリック率がサイト平均を下回る（＝収益導線が弱い）。
+    // 順位・CTRが健全でも拾えるよう、R1〜R3とは独立に判定する。
+    const rpForRule = potentials.get(url)!;
+    const hitR4 =
+      siteAvgAffRate > 0 &&
+      rpForRule.sessions >= th.r4.minSessions &&
+      rpForRule.affRate < siteAvgAffRate;
+    if (hitR4) counts.R4++;
     if (hitR1) counts.R1++;
     if (hitR2) counts.R2++;
     if (hitR3) counts.R3++;
@@ -118,6 +138,10 @@ export function extractRewriteCandidates(
     } else if (hitR3) {
       rule = "R3";
       factor = Math.min(1, Math.max(0, (a.position - 10) / a.position));
+    } else if (hitR4) {
+      rule = "R4";
+      // 導線ギャップの大きさ（目標率にどれだけ届いていないか）を改善余地とみなす
+      factor = targetAffRate > 0 ? Math.min(1, Math.max(0, (targetAffRate - rpForRule.affRate) / targetAffRate)) : 0;
     }
     if (!rule) continue;
 
