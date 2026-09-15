@@ -13,6 +13,8 @@ import { CONFIG } from "../config.ts";
 import { buildRewritePrompt, buildNewArticlePrompt, COMPLIANCE_GUIDE } from "./prompts.ts";
 import type { Candidate } from "../analyze/types.ts";
 import type { AffiliateShortcode } from "../fetch/wp.ts";
+import { sanitizeAffiliateCodes } from "./sanitize.ts";
+import { log } from "../util/logger.ts";
 
 export interface GenContext {
   originalTitle?: string; // リライト元タイトル
@@ -90,7 +92,10 @@ export function assembleDraft(
   if (c.type === "rewrite") {
     const titleSuggestions = Array.isArray(obj.titleSuggestions) ? (obj.titleSuggestions as unknown[]).map(String) : [];
     const changeSummary = String(obj.changeSummary ?? "");
-    const bodyHtml = String(obj.contentHtml ?? "");
+    const raw = String(obj.contentHtml ?? "");
+    // カタログ外IDの創作がすり抜けた場合は機械的に除去する
+    const { html: bodyHtml, removed } = sanitizeAffiliateCodes(raw, ctx.affiliateCatalog, ctx.originalHtml);
+    if (removed.length) log.warn("カタログ外のアフィショートコードを除去", { url: c.targetUrl, removed });
     const titleComment = titleSuggestions.length
       ? `\n<!-- タイトル案:\n${titleSuggestions.map((t, i) => `  ${i + 1}. ${t}`).join("\n")}\n-->`
       : "";
