@@ -30,9 +30,9 @@ const arrow = (delta: number, betterWhenPositive = true) => {
 };
 
 /** A. SEOダイジェスト */
-function seoDigest(gscCurrent: GscRow[], gscPrevious: GscRow[]): string {
-  const cur = aggregateByUrl(gscCurrent);
-  const prev = aggregateByUrl(gscPrevious);
+function seoDigest(gscCurrent: GscRow[], gscPrevious: GscRow[], curPages?: GscRow[], prevPages?: GscRow[]): string {
+  const cur = aggregateByUrl(gscCurrent, curPages);
+  const prev = aggregateByUrl(gscPrevious, prevPages);
   type Row = { path: string; dPos: number; curPos: number; prevPos: number; dClicks: number; curClicks: number; imp: number };
   const rows: Row[] = [];
   for (const [url, a] of cur) {
@@ -82,8 +82,8 @@ function seoDigest(gscCurrent: GscRow[], gscPrevious: GscRow[]): string {
 }
 
 /** C. リライト効果測定（提案時 vs 現在）。台帳は履歴JSON、WPは現在の状態の参照元。 */
-function rewriteEffect(gscCurrent: GscRow[], history: HistoryEntry[], statusByUrl: Map<string, WpStatus>): string {
-  const cur = aggregateByUrl(gscCurrent);
+function rewriteEffect(gscCurrent: GscRow[], history: HistoryEntry[], statusByUrl: Map<string, WpStatus>, curPages?: GscRow[]): string {
+  const cur = aggregateByUrl(gscCurrent, curPages);
   // 同一URLは最新の提案（runDate最大）を代表として表示
   const byUrl = new Map<string, HistoryEntry>();
   for (const r of history) {
@@ -124,9 +124,9 @@ function rewriteEffect(gscCurrent: GscRow[], history: HistoryEntry[], statusByUr
 }
 
 /** B. 収益（アフィリエイトリンククリック）セクション */
-function revenueSection(gscCurrent: GscRow[], ga4: Ga4Row[], affiliate: Map<string, AffiliateClicks>): string {
+function revenueSection(gscCurrent: GscRow[], ga4: Ga4Row[], affiliate: Map<string, AffiliateClicks>, curPages?: GscRow[]): string {
   if (affiliate.size === 0) return "## 💰 収益（アフィリンククリック）\n_計測データがありません_\n";
-  const cur = aggregateByUrl(gscCurrent);
+  const cur = aggregateByUrl(gscCurrent, curPages);
   const impByPath = new Map<string, number>();
   for (const [url, a] of cur) impByPath.set(path(url), a.impressions);
   const sessByPath = new Map<string, number>();
@@ -163,16 +163,18 @@ export function buildWeeklyReport(
   statusByUrl: Map<string, WpStatus>,
   ga4: Ga4Row[] = [],
   affiliate: Map<string, AffiliateClicks> = new Map(),
+  gscCurrentPages?: GscRow[],
+  gscPreviousPages?: GscRow[],
 ): string {
   return [
     `# 週次レポート（${periods.current.startDate}〜${periods.current.endDate}）`,
     `対象サイト分析: 直近28日 vs 前28日（${periods.previous.startDate}〜${periods.previous.endDate}）`,
     "",
-    revenueSection(gscCurrent, ga4, affiliate),
+    revenueSection(gscCurrent, ga4, affiliate, gscCurrentPages),
     "",
-    seoDigest(gscCurrent, gscPrevious),
+    seoDigest(gscCurrent, gscPrevious, gscCurrentPages, gscPreviousPages),
     "",
-    rewriteEffect(gscCurrent, history, statusByUrl),
+    rewriteEffect(gscCurrent, history, statusByUrl, gscCurrentPages),
   ].join("\n");
 }
 

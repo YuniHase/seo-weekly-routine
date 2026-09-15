@@ -66,7 +66,13 @@ async function main(): Promise<void> {
   if (addedFromWp > 0) log.info("WPの提案記録を履歴に取り込みました", { added: addedFromWp });
   const statusByUrl = new Map(proposalRecords.filter((r) => r.targetUrl).map((r) => [r.targetUrl!, r.status] as const));
 
-  const input: AnalyzeInput = { gscCurrent: gsc.current, gscPrevious: gsc.previous, ga4, wp, proposalTargets, affiliate };
+  const input: AnalyzeInput = {
+    gscCurrent: gsc.current,
+    gscPrevious: gsc.previous,
+    gscCurrentPages: gsc.currentPages,
+    gscPreviousPages: gsc.previousPages,
+    ga4, wp, proposalTargets, affiliate,
+  };
   const { counts, allSorted, dedup, n2Excluded } = buildCandidates(input);
 
   console.log("\n========== 候補抽出サマリー ==========");
@@ -114,6 +120,8 @@ async function main(): Promise<void> {
       statusByUrl,
       ga4,
       affiliate,
+      gsc.currentPages,
+      gsc.previousPages,
     );
     writeReport(report);
     log.info("週次レポートを出力しました", { to: process.env.GITHUB_STEP_SUMMARY ? "GITHUB_STEP_SUMMARY" : "stdout" });

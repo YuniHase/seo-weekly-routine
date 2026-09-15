@@ -86,6 +86,9 @@ export interface ProposalTargets {
 export interface AnalyzeInput {
   gscCurrent: GscRow[];
   gscPrevious: GscRow[];
+  /** page次元のみの取得結果。記事単位の指標はこちらを正とする（匿名化クエリ対策） */
+  gscCurrentPages?: GscRow[];
+  gscPreviousPages?: GscRow[];
   ga4: Ga4Row[];
   /** WP記事スナップショット。publish はURL→ID対応や受け皿判定、draft/trash は重複・却下判定に使う */
   wp: WpSnapshot;

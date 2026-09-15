@@ -39,8 +39,8 @@ function extractWith(
 }
 
 export function buildCandidates(input: AnalyzeInput, th: Thresholds = DEFAULT_THRESHOLDS): BuildResult {
-  const current = aggregateByUrl(input.gscCurrent);
-  const previous = aggregateByUrl(input.gscPrevious);
+  const current = aggregateByUrl(input.gscCurrent, input.gscCurrentPages);
+  const previous = aggregateByUrl(input.gscPrevious, input.gscPreviousPages);
   const byQuery = aggregateByQuery(input.gscCurrent);
   const publishByUrl = publishMap(input.wp.publish);
   const homeUrl = normalizeUrl(CONFIG.wp.baseUrl);
@@ -60,8 +60,8 @@ export interface SensitivityRow {
 
 /** 特定閾値を振って、対応ルールの通過件数を試算する */
 export function sensitivity(input: AnalyzeInput): SensitivityRow[] {
-  const current = aggregateByUrl(input.gscCurrent);
-  const previous = aggregateByUrl(input.gscPrevious);
+  const current = aggregateByUrl(input.gscCurrent, input.gscCurrentPages);
+  const previous = aggregateByUrl(input.gscPrevious, input.gscPreviousPages);
   const byQuery = aggregateByQuery(input.gscCurrent);
   const publishByUrl = publishMap(input.wp.publish);
   const homeUrl = normalizeUrl(CONFIG.wp.baseUrl);
