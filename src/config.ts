@@ -59,6 +59,9 @@ export const CONFIG = {
     dryRun: bool("DRY_RUN", true),
     // 収益重み: アフィクリックの伸びしろをスコアにどれだけ反映するか（0=無効, 1=最大2倍）
     revenueWeight: num("REVENUE_WEIGHT", 1),
+    // アフィリンク1クリックあたりの期待報酬(円)。週次レポートの収益上限の概算にのみ使う。
+    // 実報酬はASP管理画面でしか分からないため、確定値ではなく目安。ASPの実績に合わせて調整する。
+    affiliateEpcYen: num("AFFILIATE_EPC_YEN", 30),
   },
   batch: {
     // 本番は Batch API（50%オフ・非同期）。USE_BATCH=false で同期に切替（デバッグ用）。

@@ -10,6 +10,8 @@
  */
 import { appendFileSync } from "node:fs";
 import { aggregateByUrl, aggregateByQuery } from "../analyze/aggregate.ts";
+import { intentSection, phantomRankSection, revenueCeilingSection, concentrationLine } from "./intent.ts";
+import { CONFIG } from "../config.ts";
 import type { GscRow, WpStatus, Ga4Row, AffiliateClicks } from "../analyze/types.ts";
 import type { HistoryEntry } from "../history/store.ts";
 
@@ -73,6 +75,7 @@ function seoDigest(gscCurrent: GscRow[], gscPrevious: GscRow[], curPages?: GscRo
 
   return [
     "## 📈 週次SEOダイジェスト",
+    concentrationLine(cur),
     posTable("🟢 順位が上がった記事 Top5", up),
     posTable("🔴 順位が下がった記事 Top5", down),
     clicksTable("クリック増加 Top5", clicksUp),
@@ -166,11 +169,29 @@ export function buildWeeklyReport(
   gscCurrentPages?: GscRow[],
   gscPreviousPages?: GscRow[],
 ): string {
+  // 収益上限の概算に使う実績値
+  const sessByPath = new Map<string, number>();
+  for (const g of ga4) sessByPath.set(g.pagePath.replace(/\/+$/, "") || "/", g.sessions);
+  const totalSessions = [...sessByPath.values()].reduce((s, v) => s + v, 0);
+  const totalAffClicks = [...affiliate.values()].reduce((s, a) => s + a.total, 0);
+  // 目標率 = サイト内上位25%の水準（候補抽出側と同じ考え方）
+  const rates = [...sessByPath.entries()]
+    .map(([p, s]) => (s > 0 ? (affiliate.get(p)?.total ?? 0) / s : 0))
+    .filter((v) => v > 0)
+    .sort((a, b) => b - a);
+  const targetAffRate = rates.length ? rates[Math.floor(rates.length * 0.25)] ?? rates[0] : 0;
+
   return [
     `# 週次レポート（${periods.current.startDate}〜${periods.current.endDate}）`,
     `対象サイト分析: 直近28日 vs 前28日（${periods.previous.startDate}〜${periods.previous.endDate}）`,
     "",
     revenueSection(gscCurrent, ga4, affiliate, gscCurrentPages),
+    "",
+    revenueCeilingSection(totalSessions, totalAffClicks, targetAffRate, CONFIG.run.affiliateEpcYen),
+    "",
+    intentSection(gscCurrent, gscPrevious),
+    "",
+    phantomRankSection(gscCurrent),
     "",
     seoDigest(gscCurrent, gscPrevious, gscCurrentPages, gscPreviousPages),
     "",
