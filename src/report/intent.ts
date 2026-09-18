@@ -13,6 +13,7 @@
  * 扱えるようにし、解釈（何をすべきか）とは分離する。
  */
 import type { GscRow } from "../analyze/types.ts";
+import { SEASON_CLUSTERS, seasonAlerts, monthsUntilPeak, type SeasonCoverage } from "../analyze/seasonality.ts";
 
 /** ファネル段階。上から優先的にマッチさせ、1クエリ=1段階に割り当てる */
 const FUNNEL: Array<{ key: string; label: string; re: RegExp }> = [
@@ -38,11 +39,8 @@ const FUNNEL: Array<{ key: string; label: string; re: RegExp }> = [
   },
 ];
 
-/** 季節タグ（ファネルと直交） */
-const SEASONS: Array<{ key: string; label: string; re: RegExp }> = [
-  { key: "summer", label: "夏", re: /夏|暑い|涼し|クール|冷感|summer/i },
-  { key: "winter", label: "冬", re: /冬|寒い|暖か|あったか|防寒|裏起毛|保温|winter/i },
-];
+/** 季節タグ（ファネルと直交）。定義とピーク月は商材プロファイル側に持つ */
+const SEASONS = SEASON_CLUSTERS.map((c) => ({ key: c.key, label: c.label, re: c.re }));
 
 interface Bucket {
   label: string;
@@ -123,13 +121,20 @@ export function intentSection(gscCurrent: GscRow[], gscPrevious: GscRow[]): stri
   const sPrev = classify(gscPrevious, SEASONS, false);
   // 0件の季節も必ず行として出す。「その季節の受け皿が無い」ことこそが行動のシグナルなので、
   // 該当なしで行を消すと一番重要な空白が見えなくなる。
-  const seasonRows = SEASONS.map((s) => {
-    const c = sCur.get(s.key), p = sPrev.get(s.key);
+  const month = new Date().getMonth() + 1;
+  const coverage = new Map<string, SeasonCoverage>();
+  const seasonRows = SEASON_CLUSTERS.map((sc) => {
+    const c = sCur.get(sc.key), p = sPrev.get(sc.key);
     const clicks = c?.clicks ?? 0;
+    const impressions = c?.impressions ?? 0;
     const share = total > 0 ? clicks / total : 0;
-    const flag = clicks === 0 && (c?.impressions ?? 0) < 50 ? " ← 受け皿なし" : "";
-    return `| ${s.label}${flag} | ${clicks} | ${pctStr(share)} | ${c?.impressions ?? 0} | ${delta(clicks, p?.clicks ?? 0)} |`;
+    coverage.set(sc.key, { clicks, impressions, share });
+    const until = monthsUntilPeak(sc, month);
+    const peak = until === 0 ? "**ピーク中**" : `あと${until}ヶ月`;
+    return `| ${sc.label} | ${clicks} | ${pctStr(share)} | ${impressions} | ${delta(clicks, p?.clicks ?? 0)} | ${sc.peakMonths[0]}〜${sc.peakMonths[sc.peakMonths.length - 1]}月（${peak}） |`;
   });
+  const alerts = seasonAlerts(new Date(), coverage);
+  const alertLines = alerts.map((a) => `- ${a.level === "danger" ? "🚨" : "⚠️"} ${a.message}`);
 
   return [
     "## 🎯 検索意図の構成",
@@ -144,12 +149,15 @@ export function intentSection(gscCurrent: GscRow[], gscPrevious: GscRow[]): stri
     verdict,
     "",
     "### 季節クラスタ（ファネルと直交）",
-    "> 季節商材は稼ぎ頭のクラスタが数ヶ月で枯れる。次の季節の記事を用意する時期の判断に使う。",
+    "> 季節商材は稼ぎ頭のクラスタが数ヶ月で枯れる。ピーク月は商材プロファイル",
+    "> （`src/analyze/seasonality.ts`）の宣言値。記事は公開後すぐ上位に出ないため、",
+    "> ピークの数ヶ月前に用意しておく必要がある。",
     "",
-    "| 季節 | クリック | 構成比 | 表示 | 前期比 |",
-    "|---|---|---|---|---|",
-    ...(seasonRows.length ? seasonRows : ["| _該当なし_ | | | | |"]),
+    "| 季節 | クリック | 構成比 | 表示 | 前期比 | ピーク |",
+    "|---|---|---|---|---|---|",
+    ...seasonRows,
     "",
+    ...(alertLines.length ? ["**季節アラート**", "", ...alertLines, ""] : []),
   ].join("\n");
 }
 
