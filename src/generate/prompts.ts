@@ -99,8 +99,25 @@ ${c.rule === "R1" ? "- タイトル案を3つ提示する（クリックされ�
 }
 
 /** 新規記事（§5-2）用ユーザープロンプト。事実確認が必要な箇所はプレースホルダーにする。 */
-export function buildNewArticlePrompt(c: Candidate, internalLinkTitles: string[]): string {
-  const links = internalLinkTitles.slice(0, 30).map((t) => `- ${t}`).join("\n");
+export function buildNewArticlePrompt(
+  c: Candidate,
+  internalLinks: Array<{ title: string; url: string }>,
+  ctxCatalog?: AffiliateShortcode[],
+): string {
+  // URLを渡すので内部リンクは実リンクとして書かせる（プレースホルダーにしない）
+  const links = internalLinks.slice(0, 30).map((l) => `- ${l.title} → ${l.url}`).join("\n");
+
+  // 収益導線は既存記事のリライトと同じ型を使う。実在するショートコードから文脈で選ばせる。
+  const catalog = ctxCatalog ?? [];
+  const catalogText = catalog
+    .map((s) => `  - ${s.code}（サイト内${s.count}回使用 / 使用記事: ${s.articles.slice(0, 4).join(", ")}）\n      使用例の文脈: ${s.contexts[0] ?? "-"}`)
+    .join("\n");
+  const affiliateInstruction = catalog.length
+    ? `- 読者が商品を検討する文脈（選び方・比較・まとめ・FAQ）を**1〜3箇所**選び、下記リストから
+  **文脈に最も合うショートコードをそのままの文字列で挿入**すること。
+  **リストに無いIDを創作してはいけない。** 関連の薄い商品を無理に入れない。
+${catalogText}`
+    : "- アフィリエイトリンクは 【要確認: アフィリンク挿入】 のプレースホルダーを置く（URL・ショートコードの創作は禁止）。";
   return `以下の検索需要に応える「新規記事」を書いてください（改善タイプ ${c.rule}）。
 
 ## 対象クエリ（検索需要）
@@ -115,7 +132,9 @@ ${c.queries.map((q) => `「${q}」`).join(" / ")}
   という誘導文にし、アフィリエイトリンクへの導線にする。【要確認】プレースホルダーにも金額は入れない。
 - 表現ルール（薬機法・景表法）を厳守。断定的効能表現は禁止。
 - 文字数目安 3000〜5000字。見出し(h2/h3)構造を付ける。
-- 内部リンク候補（サイト内関連記事タイトル。関連するものがあれば本文中で自然に言及してよいが、URLは不明なので【要確認: 内部リンク先URL】とする）:
+${affiliateInstruction}
+- 内部リンク候補（サイト内の既存記事とそのURL）。関連するものは本文中で自然に言及し、
+  **<a href="URL">タイトル</a> の形で実際にリンクする**こと。無関係なものは入れない:
 ${links || "（なし）"}
 
 ## 出力形式（**JSONのみ**を返す。前後に説明文やコードフェンスを付けない）

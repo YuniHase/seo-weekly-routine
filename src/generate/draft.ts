@@ -19,7 +19,7 @@ import { log } from "../util/logger.ts";
 export interface GenContext {
   originalTitle?: string; // リライト元タイトル
   originalHtml?: string; // リライト元本文
-  internalLinkTitles?: string[]; // 新規記事の内部リンク候補
+  internalLinks?: Array<{ title: string; url: string }>; // 新規記事の内部リンク候補（実リンク用にURL込み）
   affiliateCatalog?: AffiliateShortcode[]; // サイト内の実在ショートコード（挿入候補）
 }
 
@@ -51,14 +51,56 @@ function proposalComment(c: Candidate): string {
   return `<!-- SEOルーチン提案 | 実行日: ${today()} | タイプ: ${typeLabel} | 対象クエリ: ${qStr} | 現状: ${state || "-"}${target} -->`;
 }
 
-/** JSONを頑健に抽出（コードフェンスや前後テキストが混じっても対応） */
+/**
+ * 文字列リテラル内の生の制御文字（改行・タブ）をエスケープする。
+ *
+ * 記事HTMLは長文なので、モデルが contentHtml の中に生の改行をそのまま
+ * 出力することがある。JSONとしては不正なため、文字列内にいるかを追跡して
+ * エスケープし直す。文字列外の改行（整形用）はそのまま残す。
+ */
+function escapeControlCharsInStrings(s: string): string {
+  let out = "";
+  let inString = false;
+  let escaped = false;
+  for (const ch of s) {
+    if (escaped) {
+      out += ch;
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\") {
+      out += ch;
+      escaped = inString; // 文字列内のみエスケープ開始として扱う
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      out += ch;
+      continue;
+    }
+    if (inString && (ch === "\n" || ch === "\r" || ch === "\t")) {
+      out += ch === "\n" ? "\\n" : ch === "\r" ? "\\r" : "\\t";
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
+/** JSONを頑健に抽出（コードフェンスや前後テキスト、生の制御文字が混じっても対応） */
 function extractJson(text: string): Record<string, unknown> {
   let s = text.trim();
   s = s.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
   const start = s.indexOf("{");
   const end = s.lastIndexOf("}");
   if (start === -1 || end === -1) throw new Error("生成結果からJSONを抽出できませんでした");
-  return JSON.parse(s.slice(start, end + 1));
+  const body = s.slice(start, end + 1);
+  try {
+    return JSON.parse(body);
+  } catch {
+    // 生の改行等が原因のことが多い。修復して再試行する
+    return JSON.parse(escapeControlCharsInStrings(body));
+  }
 }
 
 /** 生成リクエストのparams（model/system/messages/max_tokens）を組み立てる */
@@ -66,7 +108,7 @@ export function buildGenParams(c: Candidate, ctx: GenContext) {
   const user =
     c.type === "rewrite"
       ? buildRewritePrompt(c, ctx.originalTitle ?? "", ctx.originalHtml ?? "", ctx.affiliateCatalog)
-      : buildNewArticlePrompt(c, ctx.internalLinkTitles ?? []);
+      : buildNewArticlePrompt(c, ctx.internalLinks ?? [], ctx.affiliateCatalog);
   return {
     model: CONFIG.anthropic.model,
     // 記事HTMLは長め。途中で切れて不正JSONにならないよう十分な上限を取る
@@ -111,7 +153,9 @@ export function assembleDraft(
   // 新規
   const genTitle = String(obj.title ?? "（無題）");
   const metaDescription = String(obj.metaDescription ?? "");
-  const bodyHtml = String(obj.contentHtml ?? "");
+  const rawNew = String(obj.contentHtml ?? "");
+  const { html: bodyHtml, removed: removedNew } = sanitizeAffiliateCodes(rawNew, ctx.affiliateCatalog, undefined);
+  if (removedNew.length) log.warn("カタログ外のアフィショートコードを除去", { title: genTitle, removed: removedNew });
   const metaComment = metaDescription ? `\n<!-- メタディスクリプション案: ${metaDescription} -->` : "";
   return {
     title: `【AI提案/新規】${genTitle}`,

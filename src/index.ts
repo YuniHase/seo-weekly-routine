@@ -156,7 +156,13 @@ async function main(): Promise<void> {
       const orig = await fetchPostContent(c.wpPostId);
       items.push({ candidate: c, ctx: { originalTitle: orig.title, originalHtml: orig.contentHtml, affiliateCatalog } });
     } else {
-      items.push({ candidate: c, ctx: { internalLinkTitles: wp.publish.map((p) => p.title) } });
+      items.push({
+        candidate: c,
+        ctx: {
+          internalLinks: wp.publish.map((p) => ({ title: p.title, url: p.link })),
+          affiliateCatalog,
+        },
+      });
     }
   }
 
