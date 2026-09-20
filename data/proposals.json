@@ -1,5 +1,29 @@
 [
   {
+    "runDate": "2026-09-20",
+    "targetUrl": "https://recovery-wear-guide.com/recoverywear-size",
+    "rule": "R1",
+    "wpDraftId": 535,
+    "title": "【AI提案/リライト】リカバリーウェアのサイズ選び方｜きつい・ゆるいの判断基準と失敗しない選び方",
+    "before": {
+      "position": 9.898976982097187,
+      "ctr": 0.01918158567774936,
+      "impressions": 782
+    }
+  },
+  {
+    "runDate": "2026-09-20",
+    "targetUrl": "https://recovery-wear-guide.com/when-to-wear",
+    "rule": "R4",
+    "wpDraftId": 534,
+    "title": "【AI提案/リライト】リカバリーウェアはいつ着るのが正解？効果を高める使い方と3つの着用タイミング",
+    "before": {
+      "position": 4.690383111806098,
+      "ctr": 0.03831118060985145,
+      "impressions": 1279
+    }
+  },
+  {
     "runDate": "2026-09-14",
     "targetUrl": "https://recovery-wear-guide.com/howtowash-recoverywear",
     "rule": "R1",
