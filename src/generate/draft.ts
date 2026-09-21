@@ -14,6 +14,7 @@ import { buildRewritePrompt, buildNewArticlePrompt, COMPLIANCE_GUIDE } from "./p
 import type { Candidate } from "../analyze/types.ts";
 import type { AffiliateShortcode } from "../fetch/wp.ts";
 import { sanitizeAffiliateCodes } from "./sanitize.ts";
+import { toCocoonFaqBlocks } from "./cocoonFaq.ts";
 import { log } from "../util/logger.ts";
 
 export interface GenContext {
@@ -136,8 +137,11 @@ export function assembleDraft(
     const changeSummary = String(obj.changeSummary ?? "");
     const raw = String(obj.contentHtml ?? "");
     // カタログ外IDの創作がすり抜けた場合は機械的に除去する
-    const { html: bodyHtml, removed } = sanitizeAffiliateCodes(raw, ctx.affiliateCatalog, ctx.originalHtml);
+    const { html: cleaned, removed } = sanitizeAffiliateCodes(raw, ctx.affiliateCatalog, ctx.originalHtml);
     if (removed.length) log.warn("カタログ外のアフィショートコードを除去", { url: c.targetUrl, removed });
+    // FAQはサイト既存記事と同じ Cocoon の FAQブロックに揃える
+    const { html: bodyHtml, converted } = toCocoonFaqBlocks(cleaned);
+    if (converted) log.info("FAQをCocoonブロックに変換", { url: c.targetUrl, converted });
     const titleComment = titleSuggestions.length
       ? `\n<!-- タイトル案:\n${titleSuggestions.map((t, i) => `  ${i + 1}. ${t}`).join("\n")}\n-->`
       : "";
@@ -154,8 +158,10 @@ export function assembleDraft(
   const genTitle = String(obj.title ?? "（無題）");
   const metaDescription = String(obj.metaDescription ?? "");
   const rawNew = String(obj.contentHtml ?? "");
-  const { html: bodyHtml, removed: removedNew } = sanitizeAffiliateCodes(rawNew, ctx.affiliateCatalog, undefined);
+  const { html: cleanedNew, removed: removedNew } = sanitizeAffiliateCodes(rawNew, ctx.affiliateCatalog, undefined);
   if (removedNew.length) log.warn("カタログ外のアフィショートコードを除去", { title: genTitle, removed: removedNew });
+  const { html: bodyHtml, converted: convertedNew } = toCocoonFaqBlocks(cleanedNew);
+  if (convertedNew) log.info("FAQをCocoonブロックに変換", { title: genTitle, converted: convertedNew });
   const metaComment = metaDescription ? `\n<!-- メタディスクリプション案: ${metaDescription} -->` : "";
   return {
     title: `【AI提案/新規】${genTitle}`,
