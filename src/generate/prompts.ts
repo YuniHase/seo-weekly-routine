@@ -13,6 +13,7 @@
  */
 import type { Candidate } from "../analyze/types.ts";
 import type { AffiliateShortcode } from "../fetch/wp.ts";
+import type { PhotoEntry } from "./photoCatalog.ts";
 
 export const COMPLIANCE_GUIDE = `あなたはリカバリーウェア専門メディアのSEO編集者です。以下を厳守してください。
 【表現ルール（薬機法・景表法／必ず遵守）】
@@ -39,8 +40,32 @@ export const COMPLIANCE_GUIDE = `あなたはリカバリーウェア専門メ�
   箇条書きや簡潔な表で整理し、選びやすくする。※価格の金額は書かない。
 - 関連する自サイト記事への内部リンクは、元記事にあるものを維持する。`;
 
+/**
+ * 実物写真の挿入指示。サイトにアップ済みの写真だけを候補として渡す。
+ * 体験レビューの説得力は実物写真でしか出せないため、文脈に合うものがあれば入れる。
+ */
+function photoInstruction(photos?: PhotoEntry[]): string {
+  const list = photos ?? [];
+  if (list.length === 0) return "";
+  const lines = list
+    .map((p) => `  - PHOTO_${p.id}: ${p.description}（使える話題: ${p.topics.join("・") || "-"}）`)
+    .join("\n");
+  return `- **実物写真を1〜3枚挿入する。** 下記から文脈に合うものを選び、本文の該当箇所に
+  [PHOTO:<id>|<alt文>] の形で1行で書くこと（例: [PHOTO:471|洗濯表示タグの拡大]）。
+  **リストに無いidを書いてはいけない。imgタグやURLを自分で書いてもいけない。**
+  合う写真が無ければ1枚も入れなくてよい。無理に関係ない写真を入れない。
+  altは画像に写っているものの客観的な説明にし、効果・効能を示唆しない。
+${lines}`;
+}
+
 /** リライト（§5-1）用ユーザープロンプト。元記事を尊重し改善に徹する。 */
-export function buildRewritePrompt(c: Candidate, originalTitle: string, originalHtml: string, ctxCatalog?: AffiliateShortcode[]): string {
+export function buildRewritePrompt(
+  c: Candidate,
+  originalTitle: string,
+  originalHtml: string,
+  ctxCatalog?: AffiliateShortcode[],
+  photos?: PhotoEntry[],
+): string {
   const m = c.metrics;
   const metrics = [
     m.position !== undefined ? `平均掲載順位 ${m.position.toFixed(1)}位` : null,
@@ -87,6 +112,7 @@ ${originalHtml}
 - 上記の流入クエリの検索意図に、より的確に応える（特にCTRを上げるための導入とタイトル）。
 - 事実・数値・商品情報は元記事にあるもののみ使用。新しい事実主張・数値・比較を足さない。
 ${affiliateInstruction}
+${photoInstruction(photos)}
 - 表現ルール（薬機法・景表法）を厳守。
 ${c.rule === "R1" ? "- タイトル案を3つ提示する（クリックされやすく、かつ誇大にならない範囲で）。" : "- タイトル案を3つ提示する。"}
 
@@ -103,6 +129,7 @@ export function buildNewArticlePrompt(
   c: Candidate,
   internalLinks: Array<{ title: string; url: string }>,
   ctxCatalog?: AffiliateShortcode[],
+  photos?: PhotoEntry[],
 ): string {
   // URLを渡すので内部リンクは実リンクとして書かせる（プレースホルダーにしない）
   const links = internalLinks.slice(0, 30).map((l) => `- ${l.title} → ${l.url}`).join("\n");
@@ -139,6 +166,7 @@ ${c.queries.map((q) => `「${q}」`).join(" / ")}
 - 表現ルール（薬機法・景表法）を厳守。断定的効能表現は禁止。
 - 文字数目安 3000〜5000字。見出し(h2/h3)構造を付ける。
 ${affiliateInstruction}
+${photoInstruction(photos)}
 - 内部リンク候補（サイト内の既存記事とそのURL）。関連するものは本文中で自然に言及し、
   **<a href="URL">タイトル</a> の形で実際にリンクする**こと。無関係なものは入れない:
 ${links || "（なし）"}

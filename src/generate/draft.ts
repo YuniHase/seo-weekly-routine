@@ -15,6 +15,9 @@ import type { Candidate } from "../analyze/types.ts";
 import type { AffiliateShortcode } from "../fetch/wp.ts";
 import { sanitizeAffiliateCodes } from "./sanitize.ts";
 import { toCocoonFaqBlocks } from "./cocoonFaq.ts";
+import { applyPhotoMarkers, stripForeignImages } from "./photoInsert.ts";
+import type { PhotoEntry } from "./photoCatalog.ts";
+import type { MediaItem } from "../fetch/media.ts";
 import { log } from "../util/logger.ts";
 
 export interface GenContext {
@@ -22,6 +25,31 @@ export interface GenContext {
   originalHtml?: string; // リライト元本文
   internalLinks?: Array<{ title: string; url: string }>; // 新規記事の内部リンク候補（実リンク用にURL込み）
   affiliateCatalog?: AffiliateShortcode[]; // サイト内の実在ショートコード（挿入候補）
+  photos?: PhotoEntry[]; // 挿入を許可する実物写真（画像認識でphotoと判定されたもの）
+  media?: MediaItem[]; // 写真マーカーをURLへ解決するためのメディア一覧
+}
+
+/**
+ * 生成本文の後処理をまとめる。
+ * 順序が重要: 写真マーカーの解決 → 自前<img>の除去 → FAQブロック化。
+ * （先に外部<img>を落とすと、マーカー由来の正規の画像まで巻き込まないようにするため
+ *   マーカー解決を先に行う）
+ */
+function postProcess(html: string, ctx: GenContext, label: Record<string, unknown>): string {
+  let out = html;
+  if (ctx.photos?.length && ctx.media?.length) {
+    const r = applyPhotoMarkers(out, ctx.photos, ctx.media);
+    out = r.html;
+    if (r.inserted.length) log.info("実物写真を挿入", { ...label, ids: r.inserted });
+    if (r.rejected.length) log.warn("カタログ外の写真指定を除去", { ...label, ids: r.rejected });
+  }
+  const f = stripForeignImages(out, CONFIG.wp.baseUrl);
+  out = f.html;
+  if (f.removed) log.warn("自サイト外の画像タグを除去", { ...label, removed: f.removed });
+
+  const faq = toCocoonFaqBlocks(out);
+  if (faq.converted) log.info("FAQをCocoonブロックに変換", { ...label, converted: faq.converted });
+  return faq.html;
 }
 
 export interface GeneratedDraft {
@@ -108,8 +136,8 @@ function extractJson(text: string): Record<string, unknown> {
 export function buildGenParams(c: Candidate, ctx: GenContext) {
   const user =
     c.type === "rewrite"
-      ? buildRewritePrompt(c, ctx.originalTitle ?? "", ctx.originalHtml ?? "", ctx.affiliateCatalog)
-      : buildNewArticlePrompt(c, ctx.internalLinks ?? [], ctx.affiliateCatalog);
+      ? buildRewritePrompt(c, ctx.originalTitle ?? "", ctx.originalHtml ?? "", ctx.affiliateCatalog, ctx.photos)
+      : buildNewArticlePrompt(c, ctx.internalLinks ?? [], ctx.affiliateCatalog, ctx.photos);
   return {
     model: CONFIG.anthropic.model,
     // 記事HTMLは長め。途中で切れて不正JSONにならないよう十分な上限を取る
@@ -139,9 +167,7 @@ export function assembleDraft(
     // カタログ外IDの創作がすり抜けた場合は機械的に除去する
     const { html: cleaned, removed } = sanitizeAffiliateCodes(raw, ctx.affiliateCatalog, ctx.originalHtml);
     if (removed.length) log.warn("カタログ外のアフィショートコードを除去", { url: c.targetUrl, removed });
-    // FAQはサイト既存記事と同じ Cocoon の FAQブロックに揃える
-    const { html: bodyHtml, converted } = toCocoonFaqBlocks(cleaned);
-    if (converted) log.info("FAQをCocoonブロックに変換", { url: c.targetUrl, converted });
+    const bodyHtml = postProcess(cleaned, ctx, { url: c.targetUrl });
     const titleComment = titleSuggestions.length
       ? `\n<!-- タイトル案:\n${titleSuggestions.map((t, i) => `  ${i + 1}. ${t}`).join("\n")}\n-->`
       : "";
@@ -160,8 +186,7 @@ export function assembleDraft(
   const rawNew = String(obj.contentHtml ?? "");
   const { html: cleanedNew, removed: removedNew } = sanitizeAffiliateCodes(rawNew, ctx.affiliateCatalog, undefined);
   if (removedNew.length) log.warn("カタログ外のアフィショートコードを除去", { title: genTitle, removed: removedNew });
-  const { html: bodyHtml, converted: convertedNew } = toCocoonFaqBlocks(cleanedNew);
-  if (convertedNew) log.info("FAQをCocoonブロックに変換", { title: genTitle, converted: convertedNew });
+  const bodyHtml = postProcess(cleanedNew, ctx, { title: genTitle });
   const metaComment = metaDescription ? `\n<!-- メタディスクリプション案: ${metaDescription} -->` : "";
   return {
     title: `【AI提案/新規】${genTitle}`,

@@ -23,6 +23,8 @@ import { buildCandidates, sensitivity } from "./analyze/pipeline.ts";
 import { generateDraftsBatch, type GenItem } from "./generate/batch.ts";
 import { generateDraftSync, type GeneratedDraft } from "./generate/draft.ts";
 import { buildWeeklyReport, writeReport } from "./report/summary.ts";
+import { fetchMediaLibrary } from "./fetch/media.ts";
+import { buildPhotoCatalog, insertablePhotos } from "./generate/photoCatalog.ts";
 import { loadHistory, saveHistory, mergeHistory, type HistoryEntry } from "./history/store.ts";
 import type { AnalyzeInput, Candidate } from "./analyze/types.ts";
 
@@ -148,19 +150,26 @@ async function main(): Promise<void> {
   // アフィリンクが無い記事に実在ショートコードを挿入させるためのカタログ
   const affiliateCatalog = await fetchAffiliateShortcodes(wp);
 
+  // 本文に挿入できる実物写真のカタログ（新規アップロード分だけ画像認識にかける）
+  const media = await fetchMediaLibrary();
+  const photos = insertablePhotos(await buildPhotoCatalog(media));
+  if (photos.length) log.info("挿入候補の実物写真", { count: photos.length });
+
   // リライトは元記事本文を取得（元記事はGETのみ・変更しない）
   const items: GenItem[] = [];
   for (const c of selected) {
     if (c.type === "rewrite") {
       if (!c.wpPostId) { log.warn("wpPostId未解決のためスキップ", { url: c.targetUrl }); continue; }
       const orig = await fetchPostContent(c.wpPostId);
-      items.push({ candidate: c, ctx: { originalTitle: orig.title, originalHtml: orig.contentHtml, affiliateCatalog } });
+      items.push({ candidate: c, ctx: { originalTitle: orig.title, originalHtml: orig.contentHtml, affiliateCatalog, photos, media } });
     } else {
       items.push({
         candidate: c,
         ctx: {
           internalLinks: wp.publish.map((p) => ({ title: p.title, url: p.link })),
           affiliateCatalog,
+          photos,
+          media,
         },
       });
     }
