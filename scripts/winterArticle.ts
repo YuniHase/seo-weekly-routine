@@ -12,6 +12,7 @@
 import "dotenv/config";
 import { writeFileSync } from "node:fs";
 import { fetchWpSnapshot, fetchAffiliateShortcodes, insertableShortcodes, createDraft } from "../src/fetch/wp.ts";
+import { resolveShortcodeProducts, attachProducts } from "../src/fetch/shortcodeProducts.ts";
 import { CONFIG } from "../src/config.ts";
 import { generateDraftSync } from "../src/generate/draft.ts";
 import { log } from "../src/util/logger.ts";
@@ -46,7 +47,8 @@ const candidate: Candidate = {
 };
 
 const wp = await fetchWpSnapshot();
-const affiliateCatalog = insertableShortcodes(await fetchAffiliateShortcodes(wp), CONFIG.run.minShortcodeUsage);
+const rawCatalog = await fetchAffiliateShortcodes(wp);
+const affiliateCatalog = insertableShortcodes(attachProducts(rawCatalog, await resolveShortcodeProducts(rawCatalog, CONFIG.wp.baseUrl)));
 const internalLinks = wp.publish.map((p) => ({ title: p.title, url: p.link }));
 
 log.info("冬記事を生成します", { queries: QUERIES.length, catalog: affiliateCatalog.length, internalLinks: internalLinks.length });

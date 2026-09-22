@@ -19,6 +19,7 @@ import { log } from "./util/logger.ts";
 import { fetchGscData } from "./fetch/gsc.ts";
 import { fetchGa4Data, fetchAffiliateClicks } from "./fetch/ga4.ts";
 import { fetchWpSnapshot, fetchProposalRecords, proposalTargetsFromRecords, fetchAffiliateShortcodes, insertableShortcodes, lastArticleAffiliateCounts, fetchPostContent, createDraft } from "./fetch/wp.ts";
+import { resolveShortcodeProducts, attachProducts } from "./fetch/shortcodeProducts.ts";
 import { buildCandidates, sensitivity } from "./analyze/pipeline.ts";
 import { generateDraftsBatch, type GenItem } from "./generate/batch.ts";
 import { generateDraftSync, type GeneratedDraft } from "./generate/draft.ts";
@@ -117,7 +118,9 @@ async function main(): Promise<void> {
   const fullCatalog = await fetchAffiliateShortcodes(wp);
   const articleAffiliateCounts = lastArticleAffiliateCounts;
   // 新規挿入に使うのは、商品が文脈から特定できる（＝繰り返し使われている）コードのみ
-  const affiliateCatalog = insertableShortcodes(fullCatalog, CONFIG.run.minShortcodeUsage);
+  // 商品名は公開ページのレンダリング結果から解決する（推測させない）
+  const products = await resolveShortcodeProducts(fullCatalog, CONFIG.wp.baseUrl);
+  const affiliateCatalog = insertableShortcodes(attachProducts(fullCatalog, products));
 
   // ── 週次レポート（SEOダイジェスト + リライト効果測定）を Job Summary へ ──
   try {

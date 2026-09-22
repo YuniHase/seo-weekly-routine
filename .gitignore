@@ -19,3 +19,4 @@ logs/
 .DS_Store
 Thumbs.db
 data/photoCatalog.json
+data/shortcodeProducts.json

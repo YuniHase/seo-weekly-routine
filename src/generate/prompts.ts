@@ -79,7 +79,7 @@ export function buildRewritePrompt(
   const hasAffiliate = /\[affi|amzn\.to|a\.r10\.to|amazon\.|rakuten\./i.test(originalHtml);
   const catalog = ctxCatalog ?? [];
   const catalogText = catalog
-    .map((s) => `  - ${s.code}（サイト内${s.count}回使用 / 使用記事: ${s.articles.slice(0, 4).join(", ")}）\n      使用例の文脈: ${s.contexts[0] ?? "-"}`)
+    .map((s) => `  - ${s.code} → **${s.product ?? "（商品不明）"}**（サイト内${s.count}回使用）`)
     .join("\n");
   const affiliateInstruction = hasAffiliate
     ? "- 本文中のアフィリエイトリンク（[affi id=x] 等）は**位置も含めて必ず維持**する。削除・改変しない。"
@@ -88,9 +88,8 @@ export function buildRewritePrompt(
   おすすめ」に相当する文脈を**1〜3箇所**選び、そこに下記リストから**文脈に最も合うショートコードを
   そのままの文字列で挿入**すること（例: 記事がBAKUNEの話ならBAKUNE系のコード）。
   **リストに無いIDを創作してはいけない。** 関連の薄い商品を無理に入れない（適切な箇所が無ければ入れない）。
-  **各コードがどの商品を指すかは「使用記事」と「使用例の文脈」からのみ判断すること。**
-  使用記事名・文脈から商品を特定できないコードは使わない。別商品のコードを、記事で扱っている
-  商品のものだと推測して割り当ててはいけない（例: SIXPADのコードをBAKUNEの型番として使う等）。
+  各コードの商品名はリストに明記してある。**記事で扱っている商品と一致するコードを選ぶこと。**
+  別ブランドの商品を、記事で扱っている商品のものとして紹介してはいけない。
 ${catalogText}`
       : "- この記事にはアフィリエイトリンクが無い。商品に言及する文脈が1〜2箇所あれば 【要確認: アフィリンク挿入】 を置くこと（URL・ショートコードの創作は禁止）。";
 
@@ -147,14 +146,13 @@ export function buildNewArticlePrompt(
   // 収益導線は既存記事のリライトと同じ型を使う。実在するショートコードから文脈で選ばせる。
   const catalog = ctxCatalog ?? [];
   const catalogText = catalog
-    .map((s) => `  - ${s.code}（サイト内${s.count}回使用 / 使用記事: ${s.articles.slice(0, 4).join(", ")}）\n      使用例の文脈: ${s.contexts[0] ?? "-"}`)
+    .map((s) => `  - ${s.code} → **${s.product ?? "（商品不明）"}**（サイト内${s.count}回使用）`)
     .join("\n");
   const affiliateInstruction = catalog.length
     ? `- 読者が商品を検討する文脈（選び方・比較・まとめ・FAQ）を**1〜3箇所**選び、下記リストから
   **文脈に最も合うショートコードをそのままの文字列で挿入**すること。
   **リストに無いIDを創作してはいけない。** 関連の薄い商品を無理に入れない。
-  **各コードがどの商品を指すかは「使用記事」と「使用例の文脈」からのみ判断すること。**
-  特定できないコードは使わない。別商品のコードを推測で割り当ててはいけない。
+  各コードの商品名はリストに明記してある。記事で扱っている商品と一致するコードを選ぶこと。
 ${catalogText}`
     : "- アフィリエイトリンクは 【要確認: アフィリンク挿入】 のプレースホルダーを置く（URL・ショートコードの創作は禁止）。";
   return `以下の検索需要に応える「新規記事」を書いてください（改善タイプ ${c.rule}）。

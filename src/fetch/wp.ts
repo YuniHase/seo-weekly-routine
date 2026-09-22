@@ -155,7 +155,9 @@ export interface AffiliateShortcode {
   code: string; // 例: [affi id=4]
   count: number; // サイト内での使用回数
   articles: string[]; // 使用している記事スラッグ（最大5件）
-  contexts: string[]; // 直前の文脈（最大2件・商品の推定に使う）
+  contexts: string[]; // 直前の文脈（最大2件）
+  /** 実ページのレンダリング結果から解決した商品名（shortcodeProducts.ts が付与） */
+  product?: string;
 }
 
 /**
@@ -165,17 +167,18 @@ export interface AffiliateShortcode {
  * 選んで挿入できるようにするための材料。IDの創作を防ぐため、実在するものだけを渡す。
  */
 /**
- * 挿入候補として安全に使えるショートコードだけに絞る。
+ * 挿入候補として使えるショートコードに絞る。
  *
- * カタログは「使用回数・使用記事・周辺文脈」を渡すが、**そのコードがどの商品かは分からない**。
- * 使用回数が少ないコードは文脈が薄く、モデルが商品を推測で割り当ててしまう。
- * 実例: [affi id=9] は /sixpad-review でしか使われていないSIXPADのリンクだが、
- * BAKUNE記事に「BAKUNEのシリーズ」として挿入された。
+ * 条件は「商品名が判明していること」。商品名は公開ページのレンダリング結果
+ * （data-atag-id と商品名が一緒に出力される）から機械的に解決するので、
+ * 使用回数が1回のコードでも正確に特定でき、そのまま使える。
  *
- * 複数記事で繰り返し使われているコードは文脈から商品を特定できるため、そこだけを許可する。
+ * かつては使用回数の少ないコードを除外していたが、それでは SIXPAD や
+ * ブレインスリープのように登場回数の少ない商品へ二度とリンクできなくなる。
+ * 商品名が解決できたものは回数にかかわらず許可し、解決できなかったものだけ外す。
  */
-export function insertableShortcodes(catalog: AffiliateShortcode[], minUsage: number): AffiliateShortcode[] {
-  return catalog.filter((s) => s.count >= minUsage);
+export function insertableShortcodes(catalog: AffiliateShortcode[]): AffiliateShortcode[] {
+  return catalog.filter((s) => !!s.product && s.product.length > 0);
 }
 
 /** 記事ごとのアフィリンク本数（収益導線の監査に使う） */

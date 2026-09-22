@@ -25,6 +25,7 @@ import {
   insertableShortcodes,
   createDraft,
 } from "../src/fetch/wp.ts";
+import { resolveShortcodeProducts, attachProducts } from "../src/fetch/shortcodeProducts.ts";
 import { fetchMediaLibrary } from "../src/fetch/media.ts";
 import { buildPhotoCatalog, insertablePhotos } from "../src/generate/photoCatalog.ts";
 import { generateDraftSync } from "../src/generate/draft.ts";
@@ -85,7 +86,8 @@ const candidate: Candidate = {
   reason: `手動リライト(${rule}) | アフィリンク${affiCount}本 | 表示${agg?.impressions ?? 0}`,
 };
 
-const affiliateCatalog = insertableShortcodes(await fetchAffiliateShortcodes(wp), CONFIG.run.minShortcodeUsage);
+const rawCatalog = await fetchAffiliateShortcodes(wp);
+const affiliateCatalog = insertableShortcodes(attachProducts(rawCatalog, await resolveShortcodeProducts(rawCatalog, CONFIG.wp.baseUrl)));
 const media = await fetchMediaLibrary();
 const photos = insertablePhotos(await buildPhotoCatalog(media));
 

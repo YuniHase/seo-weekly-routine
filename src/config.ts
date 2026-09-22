@@ -66,9 +66,6 @@ export const CONFIG = {
     // 自分で撮った写真かどうかは画像からは判別できないため、日付で明示的に線を引く。
     // 未設定なら自動挿入しない（既存のメディアには公式商品画像等が混在しうるため安全側に倒す）。
     ownPhotoSince: str("OWN_PHOTO_SINCE", false),
-    // 新規挿入に使ってよいアフィショートコードの最低使用回数。
-    // 使用回数が少ないコードは文脈が薄く、モデルが商品を推測で誤って割り当てる。
-    minShortcodeUsage: int("MIN_SHORTCODE_USAGE", 3),
   },
   batch: {
     // 本番は Batch API（50%オフ・非同期）。USE_BATCH=false で同期に切替（デバッグ用）。
