@@ -18,9 +18,10 @@ import { CONFIG } from "./config.ts";
 import { log } from "./util/logger.ts";
 import { fetchGscData } from "./fetch/gsc.ts";
 import { fetchGa4Data, fetchAffiliateClicks } from "./fetch/ga4.ts";
-import { fetchWpSnapshot, fetchProposalRecords, proposalTargetsFromRecords, fetchAffiliateShortcodes, insertableShortcodes, lastArticleAffiliateCounts, fetchPostContent, createDraft } from "./fetch/wp.ts";
+import { fetchWpSnapshot, fetchProposalRecords, proposalTargetsFromRecords, fetchAffiliateShortcodes, insertableShortcodes, lastArticleAffiliateCounts, lastInternalLinks, fetchPostContent, createDraft } from "./fetch/wp.ts";
 import { resolveShortcodeProducts, attachProducts } from "./fetch/shortcodeProducts.ts";
 import { buildCandidates, sensitivity } from "./analyze/pipeline.ts";
+import { findOrphans, suggestOrphanLinks } from "./analyze/internalLinks.ts";
 import { generateDraftsBatch, type GenItem } from "./generate/batch.ts";
 import { generateDraftSync, type GeneratedDraft } from "./generate/draft.ts";
 import { buildWeeklyReport, writeReport } from "./report/summary.ts";
@@ -28,6 +29,15 @@ import { fetchMediaLibrary } from "./fetch/media.ts";
 import { buildPhotoCatalog, insertablePhotos } from "./generate/photoCatalog.ts";
 import { loadHistory, saveHistory, mergeHistory, type HistoryEntry } from "./history/store.ts";
 import type { AnalyzeInput, Candidate } from "./analyze/types.ts";
+
+/** URL → 末尾スラッシュを除いたパス（内部リンク照合用） */
+function pathOfUrl(u: string): string {
+  try {
+    return new URL(u).pathname.replace(/\/+$/, "");
+  } catch {
+    return "";
+  }
+}
 
 function line(c: Candidate, i: number): string {
   const m = c.metrics;
@@ -121,6 +131,10 @@ async function main(): Promise<void> {
   // 商品名は公開ページのレンダリング結果から解決する（推測させない）
   const products = await resolveShortcodeProducts(fullCatalog, CONFIG.wp.baseUrl);
   const affiliateCatalog = insertableShortcodes(attachProducts(fullCatalog, products));
+  // 他記事からリンクされていない記事（Googleに発見されない原因）
+  const linkNodes = lastInternalLinks;
+  const orphans = findOrphans(linkNodes);
+  if (orphans.length) log.info("孤立記事（被リンク0）", { count: orphans.length, total: linkNodes.length });
 
   // ── 週次レポート（SEOダイジェスト + リライト効果測定）を Job Summary へ ──
   try {
@@ -135,6 +149,7 @@ async function main(): Promise<void> {
       gsc.currentPages,
       gsc.previousPages,
       articleAffiliateCounts,
+      linkNodes,
     );
     writeReport(report);
     log.info("週次レポートを出力しました", { to: process.env.GITHUB_STEP_SUMMARY ? "GITHUB_STEP_SUMMARY" : "stdout" });
@@ -169,7 +184,13 @@ async function main(): Promise<void> {
     if (c.type === "rewrite") {
       if (!c.wpPostId) { log.warn("wpPostId未解決のためスキップ", { url: c.targetUrl }); continue; }
       const orig = await fetchPostContent(c.wpPostId);
-      items.push({ candidate: c, ctx: { originalTitle: orig.title, originalHtml: orig.contentHtml, affiliateCatalog, photos, media } });
+      // この記事から自然に張れる孤立記事を関連度で選ぶ
+      const selfPath = pathOfUrl(c.targetUrl ?? "");
+      // 既に張っているリンク先と自分自身は提案から除く
+      const already = [...(linkNodes.find((n) => n.path === selfPath)?.outbound ?? []), selfPath];
+      const orphanLinks = suggestOrphanLinks([orig.title, ...c.queries].join(" "), orphans, already, CONFIG.wp.baseUrl);
+      if (orphanLinks.length) log.info("孤立記事へのリンク候補", { from: selfPath, to: orphanLinks.map((o) => o.path) });
+      items.push({ candidate: c, ctx: { originalTitle: orig.title, originalHtml: orig.contentHtml, affiliateCatalog, photos, media, orphanLinks } });
     } else {
       items.push({
         candidate: c,

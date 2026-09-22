@@ -10,8 +10,9 @@
  */
 import { appendFileSync } from "node:fs";
 import { aggregateByUrl, aggregateByQuery } from "../analyze/aggregate.ts";
-import { intentSection, phantomRankSection, revenueCeilingSection, concentrationLine, affiliateAuditSection } from "./intent.ts";
+import { intentSection, phantomRankSection, revenueCeilingSection, concentrationLine, affiliateAuditSection, orphanSection } from "./intent.ts";
 import { CONFIG } from "../config.ts";
+import { findOrphans, suggestSourcesForOrphans } from "../analyze/internalLinks.ts";
 import type { GscRow, WpStatus, Ga4Row, AffiliateClicks } from "../analyze/types.ts";
 import type { HistoryEntry } from "../history/store.ts";
 
@@ -158,6 +159,20 @@ function revenueSection(gscCurrent: GscRow[], ga4: Ga4Row[], affiliate: Map<stri
   ].join("\n");
 }
 
+/** 孤立記事セクション（リンク元は表示実績のある＝インデックス済みの記事に限る） */
+function orphanBlock(
+  gscCurrent: GscRow[],
+  curPages: GscRow[] | undefined,
+  nodes: Array<{ path: string; title: string; outbound: string[] }>,
+): string {
+  const indexed = new Set<string>();
+  for (const [url, a] of aggregateByUrl(gscCurrent, curPages)) {
+    if (a.impressions > 0) indexed.add(path(url));
+  }
+  const orphans = findOrphans(nodes);
+  return orphanSection(orphans, suggestSourcesForOrphans(nodes, orphans, 2, indexed), nodes.length);
+}
+
 export function buildWeeklyReport(
   gscCurrent: GscRow[],
   gscPrevious: GscRow[],
@@ -169,6 +184,7 @@ export function buildWeeklyReport(
   gscCurrentPages?: GscRow[],
   gscPreviousPages?: GscRow[],
   articleAffiliateCounts: Array<{ path: string; title: string; affiliateCount: number }> = [],
+  internalLinkNodes: Array<{ path: string; title: string; outbound: string[] }> = [],
 ): string {
   // 収益上限の概算に使う実績値
   const sessByPath = new Map<string, number>();
@@ -193,6 +209,8 @@ export function buildWeeklyReport(
     intentSection(gscCurrent, gscPrevious),
     "",
     articleAffiliateCounts.length ? affiliateAuditSection(articleAffiliateCounts) : "",
+    "",
+    internalLinkNodes.length ? orphanBlock(gscCurrent, gscCurrentPages, internalLinkNodes) : "",
     "",
     phantomRankSection(gscCurrent),
     "",

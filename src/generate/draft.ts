@@ -26,6 +26,7 @@ export interface GenContext {
   internalLinks?: Array<{ title: string; url: string }>; // 新規記事の内部リンク候補（実リンク用にURL込み）
   affiliateCatalog?: AffiliateShortcode[]; // サイト内の実在ショートコード（挿入候補）
   photos?: PhotoEntry[]; // 挿入を許可する実物写真（画像認識でphotoと判定されたもの）
+  orphanLinks?: Array<{ title: string; url: string }>; // 被リンク0の記事（リンク経路を作る）
   media?: MediaItem[]; // 写真マーカーをURLへ解決するためのメディア一覧
 }
 
@@ -170,7 +171,7 @@ function extractJson(text: string): Record<string, unknown> {
 export function buildGenParams(c: Candidate, ctx: GenContext) {
   const user =
     c.type === "rewrite"
-      ? buildRewritePrompt(c, ctx.originalTitle ?? "", ctx.originalHtml ?? "", ctx.affiliateCatalog, ctx.photos)
+      ? buildRewritePrompt(c, ctx.originalTitle ?? "", ctx.originalHtml ?? "", ctx.affiliateCatalog, ctx.photos, ctx.orphanLinks)
       : buildNewArticlePrompt(c, ctx.internalLinks ?? [], ctx.affiliateCatalog, ctx.photos);
   return {
     model: CONFIG.anthropic.model,

@@ -191,17 +191,38 @@ export interface ArticleAffiliateCount {
 /** 直近の fetchAffiliateShortcodes 実行で得た記事ごとの本数（1回の走査で両方得るため） */
 export let lastArticleAffiliateCounts: ArticleAffiliateCount[] = [];
 
+/** 記事1件の内部リンク状況（孤立記事の検出に使う） */
+export interface ArticleLinks {
+  path: string;
+  title: string;
+  /** この記事が張っているサイト内リンク先（正規化済みパス） */
+  outbound: string[];
+}
+
+/** 直近の走査で得た内部リンク構造（全記事の本文を読み直さずに済ませるため） */
+export let lastInternalLinks: ArticleLinks[] = [];
+
 export async function fetchAffiliateShortcodes(snapshot: WpSnapshot): Promise<AffiliateShortcode[]> {
   const found = new Map<string, { count: number; articles: Set<string>; contexts: string[] }>();
   const perArticle: ArticleAffiliateCount[] = [];
+  const perLinks: ArticleLinks[] = [];
+  const pathOf = (u: string) => { try { return new URL(u).pathname.replace(/\/+$/, ""); } catch { return u; } };
   for (const p of snapshot.publish) {
     let html = "";
     try { html = (await fetchPostContent(p.id)).contentHtml; } catch { continue; }
+    const self = pathOf(p.link);
     perArticle.push({
-      path: (() => { try { return new URL(p.link).pathname.replace(/\/+$/, ""); } catch { return p.link; } })(),
+      path: self,
       title: p.title,
       affiliateCount: (html.match(/\[affi[^\]]*\]/g) ?? []).length,
     });
+    // 本文中のサイト内リンク（blogcardブロックのURLも含まれる）
+    const outbound = new Set<string>();
+    for (const lm of html.matchAll(/https:\/\/recovery-wear-guide\.com(\/[^"'?#\s<)]*)/g)) {
+      const t = lm[1].replace(/\/+$/, "");
+      if (t && t !== self) outbound.add(t);
+    }
+    perLinks.push({ path: self, title: p.title, outbound: [...outbound] });
     const re = /\[affi[^\]]*\]/g;
     let m: RegExpExecArray | null;
     while ((m = re.exec(html))) {
@@ -216,6 +237,7 @@ export async function fetchAffiliateShortcodes(snapshot: WpSnapshot): Promise<Af
     }
   }
   lastArticleAffiliateCounts = perArticle;
+  lastInternalLinks = perLinks;
   const list = [...found.entries()]
     .map(([code, e]) => ({ code, count: e.count, articles: [...e.articles], contexts: e.contexts }))
     .sort((a, b) => b.count - a.count);

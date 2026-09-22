@@ -219,6 +219,37 @@ export function affiliateAuditSection(
 }
 
 /**
+ * H. 孤立記事（他記事から1本もリンクされていない記事）。
+ *
+ * 内部リンクが無いとGoogleに発見されず、クロールすらされない。
+ * 実測では41記事中24記事が孤立し、うち15記事が公開140〜289日で未クロールだった。
+ * リライト生成時に関連するものへは自動でリンクを足すが、そもそもリライト対象に
+ * ならない記事とは結びつかないため、残りを毎週可視化して手動対応に回す。
+ */
+export function orphanSection(
+  orphans: Array<{ path: string; title: string }>,
+  suggestions: Array<{ orphan: { path: string }; sources: Array<{ path: string; score: number }> }>,
+  totalArticles: number,
+): string {
+  if (orphans.length === 0) return "## 🔗 孤立記事\n_すべての記事が他記事からリンクされています_\n";
+  const srcByPath = new Map(suggestions.map((s) => [s.orphan.path, s.sources]));
+  return [
+    "## 🔗 孤立記事（他記事から被リンク0）",
+    `> **${orphans.length}件 / 全${totalArticles}件**。内部リンクが無い記事はGoogleに発見されにくく、`,
+    "> クロールされないまま放置される。リライト対象になった記事からは自動でリンクを足すが、",
+    "> それで解消しないものは手動でリンクを張るか、記事自体の整理を検討する。",
+    "",
+    "| 記事 | タイトル | リンク元の候補 |",
+    "|---|---|---|",
+    ...orphans.map((o) => {
+      const s = (srcByPath.get(o.path) ?? []).map((x) => `\`${x.path}\``).join(" / ") || "—";
+      return `| \`${o.path}\` | ${o.title.slice(0, 32)} | ${s} |`;
+    }),
+    "",
+  ].join("\n");
+}
+
+/**
  * E. 「高順位なのにクリックされない」クエリの検出。
  *
  * 画像枠・動画枠・強調スニペット等に載っているだけで、実質の順位ではないケース。

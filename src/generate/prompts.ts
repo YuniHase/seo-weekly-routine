@@ -58,6 +58,25 @@ function photoInstruction(photos?: PhotoEntry[]): string {
 ${lines}`;
 }
 
+/**
+ * 孤立記事への内部リンク追加指示。
+ *
+ * 他記事から1本もリンクされていない記事は、Googleに発見されずクロールすらされない
+ * （実測で15本が未クロール）。上位記事のリライト時に、関連の深い孤立記事へ
+ * 自然にリンクを足すことで発見経路を作る。
+ * 関連が薄いものを無理に張ると読者にもGoogleにも不自然なので、選別はさせる。
+ */
+function orphanLinkInstruction(links?: Array<{ title: string; url: string }>): string {
+  const list = links ?? [];
+  if (list.length === 0) return "";
+  const lines = list.map((l) => `  - ${l.title} → ${l.url}`).join("\n");
+  return `- **下記はサイト内で他記事からリンクされていない記事**（読者に見つけてもらえていない）。
+  本文の流れとして**自然に言及できるものがあれば**、<a href="URL">タイトル</a> の形でリンクを追加すること。
+  関連が薄いものは張らなくてよい（0件でも可）。無理に詰め込まず、多くても2本まで。
+  リンクは文中の自然な位置に置き、「関連記事一覧」のような羅列にはしない。
+${lines}`;
+}
+
 /** リライト（§5-1）用ユーザープロンプト。元記事を尊重し改善に徹する。 */
 export function buildRewritePrompt(
   c: Candidate,
@@ -65,6 +84,7 @@ export function buildRewritePrompt(
   originalHtml: string,
   ctxCatalog?: AffiliateShortcode[],
   photos?: PhotoEntry[],
+  orphanLinks?: Array<{ title: string; url: string }>,
 ): string {
   const m = c.metrics;
   const metrics = [
@@ -115,6 +135,8 @@ ${originalHtml}
 - 事実・数値・商品情報は元記事にあるもののみ使用。新しい事実主張・数値・比較を足さない。
 ${affiliateInstruction}
 ${photoInstruction(photos)}
+${orphanLinkInstruction(orphanLinks)}
+- 元記事にある内部リンクは維持する。
 - 表現ルール（薬機法・景表法）を厳守。
 ${c.rule === "R1" ? "- タイトル案を3つ提示する（クリックされやすく、かつ誇大にならない範囲で）。" : "- タイトル案を3つ提示する。"}
 
