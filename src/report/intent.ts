@@ -176,6 +176,49 @@ export function concentrationLine(byUrl: Map<string, { clicks: number }>, topN =
 }
 
 /**
+ * G. 収益導線の監査。
+ *
+ * 「アフィリンクが1本も無い公開記事」を毎週洗い出す。
+ * 流入が無い記事はスコアが0になり候補に上がらないため、ルールでは拾えない。
+ * しかし導線が無ければ将来流入が来ても収益は0のままなので、可視化だけは必ず行う。
+ * 特に比較・おすすめ系（購入直前の読者が読む記事）に導線が無いのは明確な取りこぼし。
+ */
+const BUY_INTENT_TITLE = /比較|おすすめ|オススメ|どれ|どっち|選び方|ランキング|口コミ|レビュー|評判|違い/;
+
+export function affiliateAuditSection(
+  articles: Array<{ path: string; title: string; affiliateCount: number }>,
+): string {
+  const none = articles.filter((a) => a.affiliateCount === 0);
+  if (none.length === 0) return "## 🔌 収益導線の監査\n_全ての公開記事にアフィリンクがあります_\n";
+  const buy = none.filter((a) => BUY_INTENT_TITLE.test(a.title));
+  const info = none.filter((a) => !BUY_INTENT_TITLE.test(a.title));
+
+  const rows = (list: typeof none) =>
+    list.map((a) => `| \`${a.path}\` | ${a.title.slice(0, 44)} |`).join("\n");
+
+  return [
+    "## 🔌 収益導線の監査",
+    `> アフィリンクが1本も無い公開記事: **${none.length}件** / 全${articles.length}件`,
+    "> 流入が無い記事は候補スコアが0になりルールでは拾えないため、ここで可視化する。",
+    "",
+    ...(buy.length
+      ? [
+          `### ⚠️ 購入直前の記事なのに導線なし（${buy.length}件）`,
+          "> 比較・おすすめ系は購入を検討している読者が読む記事。導線が無いと流入しても収益にならない。",
+          "",
+          "| 記事 | タイトル |",
+          "|---|---|",
+          rows(buy),
+          "",
+        ]
+      : []),
+    ...(info.length
+      ? [`### 情報系で導線なし（${info.length}件）`, "", "| 記事 | タイトル |", "|---|---|", rows(info), ""]
+      : []),
+  ].join("\n");
+}
+
+/**
  * E. 「高順位なのにクリックされない」クエリの検出。
  *
  * 画像枠・動画枠・強調スニペット等に載っているだけで、実質の順位ではないケース。

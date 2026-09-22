@@ -10,7 +10,7 @@
  */
 import { appendFileSync } from "node:fs";
 import { aggregateByUrl, aggregateByQuery } from "../analyze/aggregate.ts";
-import { intentSection, phantomRankSection, revenueCeilingSection, concentrationLine } from "./intent.ts";
+import { intentSection, phantomRankSection, revenueCeilingSection, concentrationLine, affiliateAuditSection } from "./intent.ts";
 import { CONFIG } from "../config.ts";
 import type { GscRow, WpStatus, Ga4Row, AffiliateClicks } from "../analyze/types.ts";
 import type { HistoryEntry } from "../history/store.ts";
@@ -168,6 +168,7 @@ export function buildWeeklyReport(
   affiliate: Map<string, AffiliateClicks> = new Map(),
   gscCurrentPages?: GscRow[],
   gscPreviousPages?: GscRow[],
+  articleAffiliateCounts: Array<{ path: string; title: string; affiliateCount: number }> = [],
 ): string {
   // 収益上限の概算に使う実績値
   const sessByPath = new Map<string, number>();
@@ -190,6 +191,8 @@ export function buildWeeklyReport(
     revenueCeilingSection(totalSessions, totalAffClicks, targetAffRate, CONFIG.run.affiliateEpcYen),
     "",
     intentSection(gscCurrent, gscPrevious),
+    "",
+    articleAffiliateCounts.length ? affiliateAuditSection(articleAffiliateCounts) : "",
     "",
     phantomRankSection(gscCurrent),
     "",

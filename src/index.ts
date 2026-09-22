@@ -18,7 +18,7 @@ import { CONFIG } from "./config.ts";
 import { log } from "./util/logger.ts";
 import { fetchGscData } from "./fetch/gsc.ts";
 import { fetchGa4Data, fetchAffiliateClicks } from "./fetch/ga4.ts";
-import { fetchWpSnapshot, fetchProposalRecords, proposalTargetsFromRecords, fetchAffiliateShortcodes, fetchPostContent, createDraft } from "./fetch/wp.ts";
+import { fetchWpSnapshot, fetchProposalRecords, proposalTargetsFromRecords, fetchAffiliateShortcodes, insertableShortcodes, lastArticleAffiliateCounts, fetchPostContent, createDraft } from "./fetch/wp.ts";
 import { buildCandidates, sensitivity } from "./analyze/pipeline.ts";
 import { generateDraftsBatch, type GenItem } from "./generate/batch.ts";
 import { generateDraftSync, type GeneratedDraft } from "./generate/draft.ts";
@@ -112,6 +112,13 @@ async function main(): Promise<void> {
     console.log(`  ${row.label}:  ${row.variants.map((v) => `${v.value}→${v.count}件`).join("  ")}`);
   }
 
+  // 全公開記事を1度走査して、実在ショートコードのカタログと記事ごとの導線本数を得る。
+  // レポートの監査セクションと生成の両方で使うため、レポートより前に実行する。
+  const fullCatalog = await fetchAffiliateShortcodes(wp);
+  const articleAffiliateCounts = lastArticleAffiliateCounts;
+  // 新規挿入に使うのは、商品が文脈から特定できる（＝繰り返し使われている）コードのみ
+  const affiliateCatalog = insertableShortcodes(fullCatalog, CONFIG.run.minShortcodeUsage);
+
   // ── 週次レポート（SEOダイジェスト + リライト効果測定）を Job Summary へ ──
   try {
     const report = buildWeeklyReport(
@@ -124,6 +131,7 @@ async function main(): Promise<void> {
       affiliate,
       gsc.currentPages,
       gsc.previousPages,
+      articleAffiliateCounts,
     );
     writeReport(report);
     log.info("週次レポートを出力しました", { to: process.env.GITHUB_STEP_SUMMARY ? "GITHUB_STEP_SUMMARY" : "stdout" });
@@ -146,9 +154,6 @@ async function main(): Promise<void> {
     log.info("生成対象なし。終了。");
     return;
   }
-
-  // アフィリンクが無い記事に実在ショートコードを挿入させるためのカタログ
-  const affiliateCatalog = await fetchAffiliateShortcodes(wp);
 
   // 本文に挿入できる実物写真のカタログ（新規アップロード分だけ画像認識にかける）
   const media = await fetchMediaLibrary();

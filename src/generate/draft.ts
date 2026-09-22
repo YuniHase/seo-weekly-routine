@@ -116,6 +116,40 @@ function escapeControlCharsInStrings(s: string): string {
   return out;
 }
 
+/**
+ * 区切り行形式の出力を解析する。
+ *
+ * 記事HTMLをJSON文字列に入れる形式は、HTMLの属性クォートや生の改行が
+ * エスケープ漏れを起こして解析に失敗する（実際に2回発生）。
+ * 区切り行なら本文を一切エスケープしないので、この種の失敗が原理的に起きない。
+ */
+function parseSections(text: string): Record<string, unknown> | null {
+  // 終端マーカーが無い場合（max_tokens で切れた等）に備えて付け足してから探す
+  const body = /^===END===\s*$/m.test(text) ? text : text + "\n===END===\n";
+  const pick = (name: string): string | null => {
+    const re = new RegExp(`^===${name}===\\s*$([\\s\\S]*?)(?=^===[A-Z_]+===\\s*$)`, "m");
+    const m = re.exec(body);
+    return m ? m[1].trim() : null;
+  };
+
+  const html = pick("HTML");
+  if (!html) return null; // 区切り形式ではない
+
+  const titlesRaw = pick("TITLES");
+  const titles = titlesRaw
+    ? titlesRaw.split("\n").map((l) => l.replace(/^\s*[-*0-9]+[.)]?\s*/, "").trim()).filter(Boolean)
+    : [];
+  const out: Record<string, unknown> = { contentHtml: html };
+  if (titles.length) out.titleSuggestions = titles;
+  const summary = pick("SUMMARY");
+  if (summary) out.changeSummary = summary;
+  const title = pick("TITLE");
+  if (title) out.title = title;
+  const meta = pick("META");
+  if (meta) out.metaDescription = meta;
+  return out;
+}
+
 /** JSONを頑健に抽出（コードフェンスや前後テキスト、生の制御文字が混じっても対応） */
 function extractJson(text: string): Record<string, unknown> {
   let s = text.trim();
@@ -158,7 +192,8 @@ export function assembleDraft(
   rawText: string,
   usage: { model: string; inputTokens: number; outputTokens: number },
 ): GeneratedDraft {
-  const obj = extractJson(rawText);
+  // 区切り行形式を優先。旧形式(JSON)も引き続き解釈できるようにしておく。
+  const obj = parseSections(rawText) ?? extractJson(rawText);
 
   if (c.type === "rewrite") {
     const titleSuggestions = Array.isArray(obj.titleSuggestions) ? (obj.titleSuggestions as unknown[]).map(String) : [];

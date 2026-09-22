@@ -164,11 +164,41 @@ export interface AffiliateShortcode {
  * アフィリンクが無い記事のリライト時、Claudeが「文脈に合う既存ショートコード」を
  * 選んで挿入できるようにするための材料。IDの創作を防ぐため、実在するものだけを渡す。
  */
+/**
+ * 挿入候補として安全に使えるショートコードだけに絞る。
+ *
+ * カタログは「使用回数・使用記事・周辺文脈」を渡すが、**そのコードがどの商品かは分からない**。
+ * 使用回数が少ないコードは文脈が薄く、モデルが商品を推測で割り当ててしまう。
+ * 実例: [affi id=9] は /sixpad-review でしか使われていないSIXPADのリンクだが、
+ * BAKUNE記事に「BAKUNEのシリーズ」として挿入された。
+ *
+ * 複数記事で繰り返し使われているコードは文脈から商品を特定できるため、そこだけを許可する。
+ */
+export function insertableShortcodes(catalog: AffiliateShortcode[], minUsage: number): AffiliateShortcode[] {
+  return catalog.filter((s) => s.count >= minUsage);
+}
+
+/** 記事ごとのアフィリンク本数（収益導線の監査に使う） */
+export interface ArticleAffiliateCount {
+  path: string;
+  title: string;
+  affiliateCount: number;
+}
+
+/** 直近の fetchAffiliateShortcodes 実行で得た記事ごとの本数（1回の走査で両方得るため） */
+export let lastArticleAffiliateCounts: ArticleAffiliateCount[] = [];
+
 export async function fetchAffiliateShortcodes(snapshot: WpSnapshot): Promise<AffiliateShortcode[]> {
   const found = new Map<string, { count: number; articles: Set<string>; contexts: string[] }>();
+  const perArticle: ArticleAffiliateCount[] = [];
   for (const p of snapshot.publish) {
     let html = "";
     try { html = (await fetchPostContent(p.id)).contentHtml; } catch { continue; }
+    perArticle.push({
+      path: (() => { try { return new URL(p.link).pathname.replace(/\/+$/, ""); } catch { return p.link; } })(),
+      title: p.title,
+      affiliateCount: (html.match(/\[affi[^\]]*\]/g) ?? []).length,
+    });
     const re = /\[affi[^\]]*\]/g;
     let m: RegExpExecArray | null;
     while ((m = re.exec(html))) {
@@ -182,10 +212,12 @@ export async function fetchAffiliateShortcodes(snapshot: WpSnapshot): Promise<Af
       found.set(m[0], e);
     }
   }
+  lastArticleAffiliateCounts = perArticle;
   const list = [...found.entries()]
     .map(([code, e]) => ({ code, count: e.count, articles: [...e.articles], contexts: e.contexts }))
     .sort((a, b) => b.count - a.count);
-  log.info("アフィショートコード収集", { kinds: list.length, codes: list.map((l) => l.code).join(",") });
+  const noLink = perArticle.filter((a) => a.affiliateCount === 0).length;
+  log.info("アフィショートコード収集", { kinds: list.length, codes: list.map((l) => l.code).join(","), 導線なしの記事: noLink });
   return list;
 }
 
