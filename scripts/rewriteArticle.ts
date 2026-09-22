@@ -26,6 +26,8 @@ import {
   createDraft,
 } from "../src/fetch/wp.ts";
 import { resolveShortcodeProducts, attachProducts } from "../src/fetch/shortcodeProducts.ts";
+import { findOrphans, suggestOrphanLinks } from "../src/analyze/internalLinks.ts";
+import { lastInternalLinks } from "../src/fetch/wp.ts";
 import { fetchMediaLibrary } from "../src/fetch/media.ts";
 import { buildPhotoCatalog, insertablePhotos } from "../src/generate/photoCatalog.ts";
 import { generateDraftSync } from "../src/generate/draft.ts";
@@ -91,8 +93,15 @@ const affiliateCatalog = insertableShortcodes(attachProducts(rawCatalog, await r
 const media = await fetchMediaLibrary();
 const photos = insertablePhotos(await buildPhotoCatalog(media));
 
+// 孤立記事（被リンク0）のうち、この記事から自然に張れるもの
+const linkNodes = lastInternalLinks;
+const selfPath = new URL(ref.link).pathname.replace(/[/]+$/, "");
+const already = [...(linkNodes.find((n) => n.path === selfPath)?.outbound ?? []), selfPath];
+const orphanLinks = suggestOrphanLinks([orig.title, ...candidate.queries].join(" "), findOrphans(linkNodes), already, CONFIG.wp.baseUrl);
+
 log.info("手動リライトを生成します", {
-  id, rule, title: ref.title.slice(0, 30), 現在のアフィリンク: affiCount, 表示: agg?.impressions ?? 0, 写真候補: photos.length,
+  id, rule, title: ref.title.slice(0, 30), 現在のアフィリンク: affiCount, 表示: agg?.impressions ?? 0,
+  写真候補: photos.length, 孤立記事リンク候補: orphanLinks.map((o) => o.path),
 });
 
 const draft = await generateDraftSync(candidate, {
@@ -101,6 +110,7 @@ const draft = await generateDraftSync(candidate, {
   affiliateCatalog,
   photos,
   media,
+  orphanLinks,
 });
 
 const html = draft.contentHtml;
