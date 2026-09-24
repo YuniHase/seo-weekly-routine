@@ -73,6 +73,17 @@ kind の判定基準:
 topics は次のような粒度で: "洗濯・お手入れ", "寿命・買い替え", "サイズ選び", "裏起毛・冬用",
 "夏用・通気性", "着用シーン", "BAKUNE", "VENEX", "生地の質感", "洗濯表示タグ"
 
+**劣化・使用感の有無を必ず確認すること。** これは「何年使えるか」「買い替えの目安」を
+実体験で示すための重要な素材で、新品の商品画像では代替できない。
+次のいずれかが写っていれば description に必ず明記し、topics に "寿命・買い替え" を入れる:
+- 毛玉、毛羽立ち、繊維の浮き（光に反射して表面が毛羽立って見える状態を含む）
+- 襟ぐり・袖口・ウエストゴムの伸び、波打ち、ヨレ
+- プリントやロゴの剥がれ・ひび割れ・色あせ
+- 縫い目のほつれ、生地の薄れ、毛玉取りの跡
+※ 単なる「織り目の接写」と「使い込んで毛羽立った表面」は見分けにくいが、
+  繊維が立ち上がって光っている、白い小さな玉が点在している、プリントが欠けている
+  といった手がかりがあれば劣化として扱うこと。
+
 注意:
 - 画像に写っていないことを推測で書かない。
 - 効果・効能を示唆する表現（「疲れが取れた」等）は書かない。客観的な描写に留める。`;
@@ -162,6 +173,39 @@ export async function buildPhotoCatalog(media: MediaItem[], limit = 40): Promise
 }
 
 /**
+ * 人が与える注記（data/photoNotes.json）。画像認識の推測より優先する。
+ *
+ * 接写だけでは「経年劣化」か「製品仕様」かを画像から確定できない。
+ * 実際、画像認識も「ゴムの波打ちが劣化かギャザーデザインか判別しづらい」と注記した。
+ * これは撮影した本人しか知らない事実なので、ここで上書きできるようにする。
+ *
+ * 形式: { "561": { "description": "...", "topics": ["寿命・買い替え"], "alt": "..." }, ... }
+ */
+const NOTES_FILE = "data/photoNotes.json";
+
+type PhotoNote = Partial<Pick<PhotoEntry, "description" | "topics" | "alt" | "kind">>;
+
+export function applyPhotoNotes(catalog: PhotoEntry[]): PhotoEntry[] {
+  if (!existsSync(NOTES_FILE)) return catalog;
+  let notes: Record<string, PhotoNote> = {};
+  try {
+    notes = JSON.parse(readFileSync(NOTES_FILE, "utf8")) as Record<string, PhotoNote>;
+  } catch {
+    log.warn("photoNotes.json を読めませんでした");
+    return catalog;
+  }
+  let applied = 0;
+  const out = catalog.map((e) => {
+    const n = notes[String(e.id)];
+    if (!n) return e;
+    applied++;
+    return { ...e, ...n, note: undefined };
+  });
+  if (applied) log.info("写真の人手注記を適用", { applied });
+  return out;
+}
+
+/**
  * 本文への自動挿入に使ってよい写真だけを返す。
  *
  * 「実物写真か」は画像認識で分かるが、「**自分で撮った**写真か」は画像からは分からない。
@@ -169,7 +213,8 @@ export async function buildPhotoCatalog(media: MediaItem[], limit = 40): Promise
  * そこでアップロード日で明示的に線を引く（OWN_PHOTO_SINCE 以降のもののみ許可）。
  * 未設定なら1枚も許可しない（安全側）。
  */
-export function insertablePhotos(catalog: PhotoEntry[]): PhotoEntry[] {
+export function insertablePhotos(input: PhotoEntry[]): PhotoEntry[] {
+  const catalog = applyPhotoNotes(input);
   const since = CONFIG.run.ownPhotoSince.trim();
   if (!since) {
     const candidates = catalog.filter((e) => e.kind === "photo").length;
