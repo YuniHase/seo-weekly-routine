@@ -31,6 +31,9 @@ import {
   listH2,
 } from "../src/generate/appendSections.ts";
 import { sanitizeAffiliateCodes } from "../src/generate/sanitize.ts";
+import { fetchMediaLibrary } from "../src/fetch/media.ts";
+import { buildPhotoCatalog, insertablePhotos } from "../src/generate/photoCatalog.ts";
+import { applyPhotoMarkers, stripForeignImages } from "../src/generate/photoInsert.ts";
 import { toCocoonFaqBlocks } from "../src/generate/cocoonFaq.ts";
 import { COMPLIANCE_GUIDE } from "../src/generate/prompts.ts";
 import { CONFIG } from "../src/config.ts";
@@ -77,8 +80,11 @@ if (missed.length === 0) throw new Error("取りこぼしクエリが見つか�
 const rawCatalog = await fetchAffiliateShortcodes(wp);
 const catalog = insertableShortcodes(attachProducts(rawCatalog, await resolveShortcodeProducts(rawCatalog, CONFIG.wp.baseUrl)));
 
+const media = await fetchMediaLibrary();
+const photos = insertablePhotos(await buildPhotoCatalog(media));
+
 log.info("部分追記を生成します", {
-  id, title: ref.title.slice(0, 30), 既存h2: listH2(orig.contentHtml).length, 取りこぼしクエリ: missed.length,
+  id, title: ref.title.slice(0, 30), 既存h2: listH2(orig.contentHtml).length, 取りこぼしクエリ: missed.length, 写真候補: photos.length,
 });
 console.log("\n=== 狙うクエリ ===");
 for (const q of missed) console.log(`  表示${String(q.impressions).padStart(3)} クリック${String(q.clicks).padStart(2)} ${q.position.toFixed(1).padStart(5)}位  "${q.query}"`);
@@ -90,7 +96,7 @@ const msg = await client.messages
     max_tokens: 16000,
     thinking: { type: "disabled" as const },
     system: COMPLIANCE_GUIDE,
-    messages: [{ role: "user", content: buildAppendPrompt(ref.title, orig.contentHtml, missed, catalog) }],
+    messages: [{ role: "user", content: buildAppendPrompt(ref.title, orig.contentHtml, missed, catalog, photos) }],
   })
   .finalMessage();
 const text = msg.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("");
@@ -101,10 +107,15 @@ if (sections.length === 0) throw new Error("追加セクションを解析でき
 // 後処理は「追加セクションだけ」に適用する。
 // 全文に適用すると既存FAQのマークアップまで変わり、元記事の保持が崩れる。
 const removedCodes: string[] = [];
+const insertedPhotos: number[] = [];
 const cleaned = sections.map((s) => {
   const san = sanitizeAffiliateCodes(s.bodyHtml, catalog, undefined);
   removedCodes.push(...san.removed);
-  return { ...s, bodyHtml: toCocoonFaqBlocks(san.html).html };
+  const ph = applyPhotoMarkers(san.html, photos, media);
+  if (ph.inserted.length) insertedPhotos.push(...ph.inserted);
+  if (ph.rejected.length) log.warn("カタログ外の写真指定を除去", { ids: ph.rejected });
+  const noForeign = stripForeignImages(ph.html, CONFIG.wp.baseUrl).html;
+  return { ...s, bodyHtml: toCocoonFaqBlocks(noForeign).html };
 });
 if (removedCodes.length) log.warn("カタログ外のショートコードを除去", { removed: removedCodes });
 const result = spliceSections(orig.contentHtml, cleaned);

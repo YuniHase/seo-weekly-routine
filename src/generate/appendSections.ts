@@ -12,12 +12,29 @@
  * （モデルが書き換えようとしても、書き換える対象が手元に無い）。
  */
 import type { AffiliateShortcode } from "../fetch/wp.ts";
+import type { PhotoEntry } from "./photoCatalog.ts";
 
 export interface NewSection {
   /** 挿入位置: 0始まりのh2番号の「後ろ」。null なら末尾 */
   afterH2Index: number | null;
   heading: string;
   bodyHtml: string;
+}
+
+/**
+ * 実物写真の提示。追記セクションは「一次情報を足す」ための場所なので、
+ * 撮影した実物写真があれば最優先で使わせる（新品の商品画像では代替できない）。
+ */
+function photoBlock(photos: PhotoEntry[]): string {
+  if (photos.length === 0) return "";
+  const lines = photos
+    .map((p) => `  - PHOTO_${p.id}: ${p.description}（使える話題: ${p.topics.join("・") || "-"}）`)
+    .join("\n");
+  return `- **実物写真を1〜2枚、追記セクション内に入れる。** 文脈に合うものを選び、
+  [PHOTO:<id>|<alt文>] の形で1行で書くこと（例: [PHOTO:555|洗濯表示タグの拡大]）。
+  **リストに無いidを書かない。imgタグやURLを自分で書かない。** 合う写真が無ければ入れなくてよい。
+  写真は文章の裏付けとして使い、「実際の○○がこちら」のように本文から自然に参照すること。
+${lines}`;
 }
 
 /** 元記事のh2見出しを順に抜き出す（挿入位置の指定に使う） */
@@ -30,6 +47,7 @@ export function buildAppendPrompt(
   originalHtml: string,
   targetQueries: Array<{ query: string; impressions: number; position: number; clicks: number }>,
   catalog: AffiliateShortcode[],
+  photos: PhotoEntry[] = [],
 ): string {
   const h2s = listH2(originalHtml).map((h, i) => `  ${i}: ${h}`).join("\n");
   const qs = targetQueries
@@ -66,6 +84,7 @@ ${qs}
   合わない人の条件を具体的に書くほうが、読者の信頼を得られる。
 - 必要ならアフィリエイトのショートコードを**1本まで**入れてよい（無くてもよい）。下記の実在コードのみ:
 ${codes || "  （なし）"}
+${photoBlock(photos)}
 
 ## 出力形式
 下記の区切り行を使い、セクションごとに繰り返してください。**JSONにしないこと。**
