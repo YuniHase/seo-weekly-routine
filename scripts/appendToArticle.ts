@@ -5,13 +5,14 @@
  * 取りこぼしているクエリ向けのセクションだけを足し、既存本文はそのまま残す。
  *
  *   npx tsx scripts/appendToArticle.ts 28              # 生成してレビュー表示のみ
- *   npx tsx scripts/appendToArticle.ts 28 --post       # 新規下書きとして投稿
+ *   npx tsx scripts/appendToArticle.ts 28 --post       # 生成してそのまま新規下書き投稿
+ *   npx tsx scripts/appendToArticle.ts 28 --post-saved # 生成済みの内容をそのまま投稿
  *   npx tsx scripts/appendToArticle.ts 28 --maxpos 20  # 何位以下を取りこぼしとみなすか（既定15）
  *
  * 元記事は読むだけで変更しない。生成物は別の新規下書きとして投稿する。
  */
 import "dotenv/config";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import Anthropic from "@anthropic-ai/sdk";
 import { google } from "googleapis";
 import {
@@ -41,10 +42,25 @@ import { log } from "../src/util/logger.ts";
 
 const args = process.argv.slice(2);
 const POST = args.includes("--post");
+const POST_SAVED = args.includes("--post-saved");
 const id = Number(args.find((a) => /^\d+$/.test(a)));
 if (!id) throw new Error("記事IDを指定してください（例: npx tsx scripts/appendToArticle.ts 28）");
 const maxPosIdx = args.indexOf("--maxpos");
 const MIN_POSITION = maxPosIdx >= 0 ? Number(args[maxPosIdx + 1]) : 15;
+
+// 生成済みの内容をそのまま投稿する（レビューした内容と投稿内容を一致させる）
+if (POST_SAVED) {
+  const file = `append-${id}.html`;
+  if (!existsSync(file)) throw new Error(`${file} がありません。先に生成してください。`);
+  const s0 = await fetchWpSnapshot();
+  const t0 = s0.publish.find((p) => p.id === id);
+  if (!t0) throw new Error(`公開記事に id=${id} が見つかりません`);
+  const html0 = readFileSync(file, "utf8");
+  const c0 = await createDraft({ title: `【AI提案/追記】${t0.title}`, contentHtml: html0 });
+  console.log(`保存済みの内容を投稿しました: id=${c0.id}`);
+  console.log(c0.editLink ?? "");
+  process.exit(0);
+}
 
 const wp = await fetchWpSnapshot();
 const ref = wp.publish.find((p) => p.id === id);
