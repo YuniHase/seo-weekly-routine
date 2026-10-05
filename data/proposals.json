@@ -1,5 +1,29 @@
 [
   {
+    "runDate": "2026-10-05",
+    "targetUrl": "https://recovery-wear-guide.com/summer-recoverywear",
+    "rule": "R1",
+    "wpDraftId": 581,
+    "title": "【AI提案/リライト】【夏用リカバリーウェア】暑がりな私が厳選。日本の蒸し暑い夜も「涼しくリカバリー」する選び方と実体験",
+    "before": {
+      "position": 8.439147504206394,
+      "ctr": 0.017386427369601793,
+      "impressions": 1783
+    }
+  },
+  {
+    "runDate": "2026-10-05",
+    "targetUrl": "https://recovery-wear-guide.com/venex-review",
+    "rule": "R2",
+    "wpDraftId": 582,
+    "title": "【AI提案/リライト】【VENEX（ベネクス）本音レビュー】効果なしは本当？1ヶ月着て分かった合う人・合わない人",
+    "before": {
+      "position": 10.947791164658634,
+      "ctr": 0.040160642570281124,
+      "impressions": 249
+    }
+  },
+  {
     "runDate": "2026-09-22",
     "targetUrl": "https://recovery-wear-guide.com/best-bakune",
     "wpDraftId": 546,
