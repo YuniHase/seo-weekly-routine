@@ -8,6 +8,7 @@
  *   npx tsx scripts/appendToArticle.ts 28 --post       # 生成してそのまま新規下書き投稿
  *   npx tsx scripts/appendToArticle.ts 28 --post-saved # 生成済みの内容をそのまま投稿
  *   npx tsx scripts/appendToArticle.ts 28 --maxpos 20  # 何位以下を取りこぼしとみなすか（既定15）
+ *   npx tsx scripts/appendToArticle.ts 532 --queries "冬 寒い,裏起毛"  # 対象クエリを明示（季節先行記事向け）
  *
  * 元記事は読むだけで変更しない。生成物は別の新規下書きとして投稿する。
  */
@@ -33,6 +34,8 @@ import {
 } from "../src/generate/appendSections.ts";
 import { sanitizeAffiliateCodes } from "../src/generate/sanitize.ts";
 import { fetchMediaLibrary } from "../src/fetch/media.ts";
+import { findOrphans, suggestOrphanLinks } from "../src/analyze/internalLinks.ts";
+import { lastInternalLinks } from "../src/fetch/wp.ts";
 import { buildPhotoCatalog, insertablePhotos } from "../src/generate/photoCatalog.ts";
 import { applyPhotoMarkers, stripForeignImages } from "../src/generate/photoInsert.ts";
 import { toCocoonFaqBlocks } from "../src/generate/cocoonFaq.ts";
@@ -45,6 +48,9 @@ const POST = args.includes("--post");
 const POST_SAVED = args.includes("--post-saved");
 const id = Number(args.find((a) => /^\d+$/.test(a)));
 if (!id) throw new Error("記事IDを指定してください（例: npx tsx scripts/appendToArticle.ts 28）");
+// 季節先行記事のように、まだGSCに需要が現れていない場合は対象クエリを人が指定する
+const qIdx = args.indexOf("--queries");
+const MANUAL_QUERIES = qIdx >= 0 ? (args[qIdx + 1] ?? "").split(",").map((x) => x.trim()).filter(Boolean) : [];
 const maxPosIdx = args.indexOf("--maxpos");
 const MIN_POSITION = maxPosIdx >= 0 ? Number(args[maxPosIdx + 1]) : 15;
 
@@ -91,16 +97,29 @@ const missed = [...byQuery.values()]
   .sort((a, b) => b.impressions - a.impressions)
   .slice(0, 12);
 
-if (missed.length === 0) throw new Error("取りこぼしクエリが見つかりませんでした（--maxpos を調整してください）");
+if (MANUAL_QUERIES.length > 0) {
+  const known = new Map(missed.map((m) => [m.query, m]));
+  missed.length = 0;
+  for (const q of MANUAL_QUERIES) {
+    const k = byQuery.get(q) ?? known.get(q);
+    missed.push(k ?? { query: q, impressions: 0, clicks: 0, position: 0 });
+  }
+}
+if (missed.length === 0) throw new Error("対象クエリが見つかりませんでした（--maxpos か --queries を指定してください）");
 
 const rawCatalog = await fetchAffiliateShortcodes(wp);
 const catalog = insertableShortcodes(attachProducts(rawCatalog, await resolveShortcodeProducts(rawCatalog, CONFIG.wp.baseUrl)));
+
+const linkNodes = lastInternalLinks;
+const selfPath2 = new URL(ref.link).pathname.replace(/[/]+$/, "");
+const already2 = [...(linkNodes.find((n) => n.path === selfPath2)?.outbound ?? []), selfPath2];
+const orphanLinks = suggestOrphanLinks([ref.title, ...missed.map((m) => m.query)].join(" "), findOrphans(linkNodes), already2, CONFIG.wp.baseUrl);
 
 const media = await fetchMediaLibrary();
 const photos = insertablePhotos(await buildPhotoCatalog(media));
 
 log.info("部分追記を生成します", {
-  id, title: ref.title.slice(0, 30), 既存h2: listH2(orig.contentHtml).length, 取りこぼしクエリ: missed.length, 写真候補: photos.length,
+  id, title: ref.title.slice(0, 30), 既存h2: listH2(orig.contentHtml).length, 取りこぼしクエリ: missed.length, 写真候補: photos.length, 孤立記事リンク候補: orphanLinks.map((o) => o.path),
 });
 console.log("\n=== 狙うクエリ ===");
 for (const q of missed) console.log(`  表示${String(q.impressions).padStart(3)} クリック${String(q.clicks).padStart(2)} ${q.position.toFixed(1).padStart(5)}位  "${q.query}"`);
@@ -112,7 +131,7 @@ const msg = await client.messages
     max_tokens: 16000,
     thinking: { type: "disabled" as const },
     system: COMPLIANCE_GUIDE,
-    messages: [{ role: "user", content: buildAppendPrompt(ref.title, orig.contentHtml, missed, catalog, photos) }],
+    messages: [{ role: "user", content: buildAppendPrompt(ref.title, orig.contentHtml, missed, catalog, photos, orphanLinks) }],
   })
   .finalMessage();
 const text = msg.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("");

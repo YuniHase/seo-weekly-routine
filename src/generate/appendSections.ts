@@ -37,6 +37,19 @@ function photoBlock(photos: PhotoEntry[]): string {
 ${lines}`;
 }
 
+/**
+ * 他記事からリンクされていない記事への導線。
+ * 追記セクションは新しく書く部分なので、関連する孤立記事へ自然にリンクを張る好機になる。
+ */
+function orphanBlock(links: Array<{ title: string; url: string }>): string {
+  if (links.length === 0) return "";
+  const lines = links.map((l) => `  - ${l.title} → ${l.url}`).join("\n");
+  return `- 下記はサイト内で他記事からリンクされていない記事。追記するセクションの流れとして
+  **自然に言及できるものがあれば** <a href="URL">タイトル</a> の形でリンクすること。
+  関連が薄ければ張らなくてよい（0件可・多くても2本）。関連記事の羅列にはしない。
+${lines}`;
+}
+
 /** 元記事のh2見出しを順に抜き出す（挿入位置の指定に使う） */
 export function listH2(html: string): string[] {
   return [...html.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/gi)].map((m) => m[1].replace(/<[^>]+>/g, "").trim());
@@ -48,6 +61,7 @@ export function buildAppendPrompt(
   targetQueries: Array<{ query: string; impressions: number; position: number; clicks: number }>,
   catalog: AffiliateShortcode[],
   photos: PhotoEntry[] = [],
+  orphanLinks: Array<{ title: string; url: string }> = [],
 ): string {
   const h2s = listH2(originalHtml).map((h, i) => `  ${i}: ${h}`).join("\n");
   const qs = targetQueries
@@ -85,6 +99,7 @@ ${qs}
 - 必要ならアフィリエイトのショートコードを**1本まで**入れてよい（無くてもよい）。下記の実在コードのみ:
 ${codes || "  （なし）"}
 ${photoBlock(photos)}
+${orphanBlock(orphanLinks)}
 
 ## 出力形式
 下記の区切り行を使い、セクションごとに繰り返してください。**JSONにしないこと。**
