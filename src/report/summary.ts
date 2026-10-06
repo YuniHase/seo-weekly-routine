@@ -13,6 +13,8 @@ import { aggregateByUrl, aggregateByQuery } from "../analyze/aggregate.ts";
 import { intentSection, phantomRankSection, revenueCeilingSection, concentrationLine, affiliateAuditSection, orphanSection } from "./intent.ts";
 import { CONFIG } from "../config.ts";
 import { findOrphans, suggestSourcesForOrphans } from "../analyze/internalLinks.ts";
+import { seasonalContextSection } from "./seasonalContext.ts";
+import type { DailyPoint } from "../fetch/gsc.ts";
 import type { GscRow, WpStatus, Ga4Row, AffiliateClicks } from "../analyze/types.ts";
 import type { HistoryEntry } from "../history/store.ts";
 
@@ -185,6 +187,7 @@ export function buildWeeklyReport(
   gscPreviousPages?: GscRow[],
   articleAffiliateCounts: Array<{ path: string; title: string; affiliateCount: number }> = [],
   internalLinkNodes: Array<{ path: string; title: string; outbound: string[] }> = [],
+  baselineDaily: DailyPoint[] = [],
 ): string {
   // 収益上限の概算に使う実績値
   const sessByPath = new Map<string, number>();
@@ -213,6 +216,8 @@ export function buildWeeklyReport(
     internalLinkNodes.length ? orphanBlock(gscCurrent, gscCurrentPages, internalLinkNodes) : "",
     "",
     phantomRankSection(gscCurrent),
+    "",
+    baselineDaily.length ? seasonalContextSection(baselineDaily, periods.current, periods.previous) : "",
     "",
     seoDigest(gscCurrent, gscPrevious, gscCurrentPages, gscPreviousPages),
     "",

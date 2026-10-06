@@ -150,6 +150,7 @@ async function main(): Promise<void> {
       gsc.previousPages,
       articleAffiliateCounts,
       linkNodes,
+      gsc.baselineDaily,
     );
     writeReport(report);
     log.info("週次レポートを出力しました", { to: process.env.GITHUB_STEP_SUMMARY ? "GITHUB_STEP_SUMMARY" : "stdout" });

@@ -27,6 +27,23 @@ export interface GscPeriods {
   previousPages: GscRow[];
   currentPeriod: Period;
   previousPeriod: Period;
+  /**
+   * 日次の長期推移（既定180日）。季節のピークと平常時を見分けるために使う。
+   *
+   * 季節商材は前28日がたまたまピークだと、前期比が実態以上の急落に見える。
+   * 実例: 夏クエリ「リカバリーウェア 暑い」が8月末に週36クリックを稼ぎ、
+   * 10月には2クリックになった。これは異常ではなく季節の正常な推移。
+   * 前年同期比が本来の見方だが、立ち上げ1年目は前年データが無いため、
+   * 長期の中央値を平常時の目安として代用する。
+   */
+  baselineDaily: DailyPoint[];
+}
+
+export interface DailyPoint {
+  date: string;
+  clicks: number;
+  impressions: number;
+  position: number;
 }
 
 async function queryPeriod(period: Period, dimensions: string[] = ["page", "query"]): Promise<GscRow[]> {
@@ -55,11 +72,14 @@ async function queryPeriod(period: Period, dimensions: string[] = ["page", "quer
 export async function fetchGscData(): Promise<GscPeriods> {
   const { current, previous } = analysisPeriods(CONFIG.run.lookbackDays, CONFIG.run.dataDelayDays);
   log.info("GSC取得期間", { current, previous, site: CONFIG.google.gscSiteUrl });
-  const [cur, prev, curPages, prevPages] = await Promise.all([
+  // 季節判定用の長期ベースライン（日次・180日）。1リクエストで済む。
+  const baselineStart = new Date(new Date(current.endDate).getTime() - 180 * 864e5).toISOString().slice(0, 10);
+  const [cur, prev, curPages, prevPages, daily] = await Promise.all([
     queryPeriod(current),
     queryPeriod(previous),
     queryPeriod(current, ["page"]),
     queryPeriod(previous, ["page"]),
+    fetchDaily({ startDate: baselineStart, endDate: current.endDate }),
   ]);
   const sumImp = (rows: GscRow[]) => rows.reduce((s, r) => s + r.impressions, 0);
   log.info("GSC取得完了", {
@@ -76,5 +96,27 @@ export async function fetchGscData(): Promise<GscPeriods> {
     previousPages: prevPages,
     currentPeriod: current,
     previousPeriod: previous,
+    baselineDaily: daily,
   };
+}
+
+/** 日次の推移を取得（季節のピーク判定用） */
+async function fetchDaily(period: Period): Promise<DailyPoint[]> {
+  const wm = google.webmasters({ version: "v3", auth: getGoogleAuth() });
+  const res = await wm.searchanalytics.query({
+    siteUrl: CONFIG.google.gscSiteUrl,
+    requestBody: {
+      startDate: period.startDate,
+      endDate: period.endDate,
+      dimensions: ["date"],
+      rowLimit: 1000,
+      dataState: "final",
+    },
+  });
+  return (res.data.rows ?? []).map((r) => ({
+    date: r.keys?.[0] ?? "",
+    clicks: r.clicks ?? 0,
+    impressions: r.impressions ?? 0,
+    position: r.position ?? 0,
+  }));
 }
