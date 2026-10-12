@@ -94,6 +94,11 @@ export interface AnalyzeInput {
   wp: WpSnapshot;
   /** 提案本文から抽出した既提案/却下の対象URL（タイトル変更に強い判定用） */
   proposalTargets?: ProposalTargets;
+  /**
+   * URL→最終提案日（data/proposals.json 由来）。
+   * ゴミ箱＝対応済みをクールダウン扱いにするため、経過日数の判定に使う。
+   */
+  lastProposedByUrl?: Map<string, string>;
   /** 記事パス→アフィリンククリック数（収益ポテンシャルの算出に使う） */
   affiliate?: Map<string, AffiliateClicks>;
 }

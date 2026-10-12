@@ -85,6 +85,12 @@ async function main(): Promise<void> {
     gscCurrentPages: gsc.currentPages,
     gscPreviousPages: gsc.previousPages,
     ga4, wp, proposalTargets, affiliate,
+    // 反映済み記事のクールダウン判定に使う（URL→最終提案日）
+    lastProposedByUrl: new Map(
+      [...history1]
+        .sort((a, b) => (a.runDate ?? "").localeCompare(b.runDate ?? ""))
+        .map((h) => [h.targetUrl, h.runDate] as const),
+    ),
   };
   const { counts, allSorted, dedup, n2Excluded } = buildCandidates(input);
 

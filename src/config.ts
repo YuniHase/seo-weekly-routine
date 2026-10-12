@@ -66,6 +66,10 @@ export const CONFIG = {
     // 自分で撮った写真かどうかは画像からは判別できないため、日付で明示的に線を引く。
     // 未設定なら自動挿入しない（既存のメディアには公式商品画像等が混在しうるため安全側に倒す）。
     ownPhotoSince: str("OWN_PHOTO_SINCE", false),
+    // 反映済み（ゴミ箱）の記事を再び提案するまでの日数。
+    // ゴミ箱は運用上「却下」ではなく「対応済み」なので、恒久除外すると候補が枯れる。
+    // リライトの効果が出るまで4〜8週かかるため、それ以降に再提案する。
+    reproposeAfterDays: int("REPROPOSE_AFTER_DAYS", 60),
   },
   batch: {
     // 本番は Batch API（50%オフ・非同期）。USE_BATCH=false で同期に切替（デバッグ用）。
