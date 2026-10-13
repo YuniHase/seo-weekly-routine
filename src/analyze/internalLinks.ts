@@ -28,7 +28,7 @@ export interface OrphanInfo {
 }
 
 /** 文字バイグラム集合（日本語の簡易な類似度用） */
-function bigrams(s: string): Set<string> {
+export function bigrams(s: string): Set<string> {
   const t = s
     .toLowerCase()
     .replace(/[【】\[\]（）()｜|・,、。．.!！?？:：/／\-—–_"'`]/g, " ")
@@ -42,7 +42,7 @@ function bigrams(s: string): Set<string> {
 }
 
 /** Dice係数（0〜1） */
-function dice(a: Set<string>, b: Set<string>): number {
+export function dice(a: Set<string>, b: Set<string>): number {
   if (a.size === 0 || b.size === 0) return 0;
   let inter = 0;
   for (const x of a) if (b.has(x)) inter++;
