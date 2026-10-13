@@ -12,6 +12,7 @@
  * 疎通確認（step3）: GET /wp-json/wp/v2/posts?per_page=1 が200を返せばOK。
  * 403の場合はXserver側IP制限 / Wordfenceブロックを疑い、停止してユーザー報告。
  */
+import { readFileSync, existsSync } from "node:fs";
 import { CONFIG } from "../config.ts";
 import { log } from "../util/logger.ts";
 import { normalizeUrl } from "../util/urlNormalize.ts";
@@ -177,6 +178,32 @@ export interface AffiliateShortcode {
  * ブレインスリープのように登場回数の少ない商品へ二度とリンクできなくなる。
  * 商品名が解決できたものは回数にかかわらず許可し、解決できなかったものだけ外す。
  */
+/**
+ * 記事でまだ使われていないショートコードを手動で登録する（data/shortcodeExtra.json）。
+ *
+ * カタログは公開記事の走査で作るため、新規作成したタグはどの記事にも無く候補に入らない。
+ * 新商品を足した直後はこの経路で登録し、記事で使われ始めたら自動側が拾う。
+ */
+export function withExtraShortcodes(catalog: AffiliateShortcode[]): AffiliateShortcode[] {
+  const FILE = "data/shortcodeExtra.json";
+  if (!existsSync(FILE)) return catalog;
+  try {
+    const raw = JSON.parse(readFileSync(FILE, "utf8")) as { codes?: Array<{ id: number; product: string; note?: string }> };
+    const have = new Set(catalog.map((c) => c.code));
+    const extra: AffiliateShortcode[] = [];
+    for (const e of raw.codes ?? []) {
+      const code = `[affi id=${e.id}]`;
+      if (have.has(code)) continue;
+      extra.push({ code, count: 0, articles: [], contexts: e.note ? [e.note] : [], product: e.product });
+    }
+    if (extra.length) log.info("未使用ショートコードを手動登録から追加", { added: extra.length });
+    return [...catalog, ...extra];
+  } catch {
+    log.warn("shortcodeExtra.json を読めませんでした");
+    return catalog;
+  }
+}
+
 export function insertableShortcodes(catalog: AffiliateShortcode[]): AffiliateShortcode[] {
   return catalog.filter((s) => !!s.product && s.product.length > 0);
 }

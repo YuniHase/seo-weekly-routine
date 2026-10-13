@@ -9,6 +9,7 @@
  *   npx tsx scripts/appendToArticle.ts 28 --post-saved # 生成済みの内容をそのまま投稿
  *   npx tsx scripts/appendToArticle.ts 28 --maxpos 20  # 何位以下を取りこぼしとみなすか（既定15）
  *   npx tsx scripts/appendToArticle.ts 532 --queries "冬 寒い,裏起毛"  # 対象クエリを明示（季節先行記事向け）
+ *   npx tsx scripts/appendToArticle.ts 201 --codes "11,16"            # 使ってよいショートコードを限定
  *
  * 元記事は読むだけで変更しない。生成物は別の新規下書きとして投稿する。
  */
@@ -21,6 +22,7 @@ import {
   fetchPostContent,
   fetchAffiliateShortcodes,
   insertableShortcodes,
+  withExtraShortcodes,
   createDraft,
 } from "../src/fetch/wp.ts";
 import { resolveShortcodeProducts, attachProducts } from "../src/fetch/shortcodeProducts.ts";
@@ -49,6 +51,9 @@ const POST_SAVED = args.includes("--post-saved");
 const id = Number(args.find((a) => /^\d+$/.test(a)));
 if (!id) throw new Error("記事IDを指定してください（例: npx tsx scripts/appendToArticle.ts 28）");
 // 季節先行記事のように、まだGSCに需要が現れていない場合は対象クエリを人が指定する
+// 記事ごとに使ってよいショートコードを限定する（詰め込み防止）
+const cIdx = args.indexOf("--codes");
+const ONLY_CODES = cIdx >= 0 ? (args[cIdx + 1] ?? "").split(",").map((x) => x.trim()).filter(Boolean) : [];
 const qIdx = args.indexOf("--queries");
 const MANUAL_QUERIES = qIdx >= 0 ? (args[qIdx + 1] ?? "").split(",").map((x) => x.trim()).filter(Boolean) : [];
 const maxPosIdx = args.indexOf("--maxpos");
@@ -108,7 +113,11 @@ if (MANUAL_QUERIES.length > 0) {
 if (missed.length === 0) throw new Error("対象クエリが見つかりませんでした（--maxpos か --queries を指定してください）");
 
 const rawCatalog = await fetchAffiliateShortcodes(wp);
-const catalog = insertableShortcodes(attachProducts(rawCatalog, await resolveShortcodeProducts(rawCatalog, CONFIG.wp.baseUrl)));
+let catalog = insertableShortcodes(withExtraShortcodes(attachProducts(rawCatalog, await resolveShortcodeProducts(rawCatalog, CONFIG.wp.baseUrl))));
+if (ONLY_CODES.length) {
+  const want = new Set(ONLY_CODES.map((c) => c.replace(/[^0-9]/g, "")));
+  catalog = catalog.filter((c) => want.has((/id\s*=\s*(\d+)/.exec(c.code) ?? [])[1] ?? ""));
+}
 
 const linkNodes = lastInternalLinks;
 const selfPath2 = new URL(ref.link).pathname.replace(/[/]+$/, "");

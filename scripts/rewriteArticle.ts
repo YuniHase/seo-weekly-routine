@@ -23,6 +23,8 @@ import {
   fetchPostContent,
   fetchAffiliateShortcodes,
   insertableShortcodes,
+  withExtraShortcodes,
+  withExtraShortcodes,
   createDraft,
 } from "../src/fetch/wp.ts";
 import { resolveShortcodeProducts, attachProducts } from "../src/fetch/shortcodeProducts.ts";
@@ -89,7 +91,7 @@ const candidate: Candidate = {
 };
 
 const rawCatalog = await fetchAffiliateShortcodes(wp);
-const affiliateCatalog = insertableShortcodes(attachProducts(rawCatalog, await resolveShortcodeProducts(rawCatalog, CONFIG.wp.baseUrl)));
+const affiliateCatalog = insertableShortcodes(withExtraShortcodes(attachProducts(rawCatalog, await resolveShortcodeProducts(rawCatalog, CONFIG.wp.baseUrl))));
 const media = await fetchMediaLibrary();
 const photos = insertablePhotos(await buildPhotoCatalog(media));
 

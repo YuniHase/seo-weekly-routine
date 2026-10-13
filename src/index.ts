@@ -18,7 +18,7 @@ import { CONFIG } from "./config.ts";
 import { log } from "./util/logger.ts";
 import { fetchGscData } from "./fetch/gsc.ts";
 import { fetchGa4Data, fetchAffiliateClicks } from "./fetch/ga4.ts";
-import { fetchWpSnapshot, fetchProposalRecords, proposalTargetsFromRecords, fetchAffiliateShortcodes, insertableShortcodes, lastArticleAffiliateCounts, lastInternalLinks, fetchPostContent, createDraft } from "./fetch/wp.ts";
+import { fetchWpSnapshot, fetchProposalRecords, proposalTargetsFromRecords, fetchAffiliateShortcodes, insertableShortcodes, withExtraShortcodes, lastArticleAffiliateCounts, lastInternalLinks, fetchPostContent, createDraft } from "./fetch/wp.ts";
 import { resolveShortcodeProducts, attachProducts } from "./fetch/shortcodeProducts.ts";
 import { buildCandidates, sensitivity } from "./analyze/pipeline.ts";
 import { findOrphans, suggestOrphanLinks } from "./analyze/internalLinks.ts";
@@ -136,7 +136,7 @@ async function main(): Promise<void> {
   // 新規挿入に使うのは、商品が文脈から特定できる（＝繰り返し使われている）コードのみ
   // 商品名は公開ページのレンダリング結果から解決する（推測させない）
   const products = await resolveShortcodeProducts(fullCatalog, CONFIG.wp.baseUrl);
-  const affiliateCatalog = insertableShortcodes(attachProducts(fullCatalog, products));
+  const affiliateCatalog = insertableShortcodes(withExtraShortcodes(attachProducts(fullCatalog, products)));
   // 他記事からリンクされていない記事（Googleに発見されない原因）
   const linkNodes = lastInternalLinks;
   const orphans = findOrphans(linkNodes);
