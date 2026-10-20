@@ -43,7 +43,7 @@ async function inspect(url: string): Promise<Partial<Row>> {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const res = await sc.urlInspection.index.inspect({
-        requestBody: { inspectionUrl: url, siteUrl: CONFIG.google.gscSiteUrl, languageCode: "ja" },
+        requestBody: { inspectionUrl: url, siteUrl: CONFIG.google.gscSiteUrl, languageCode: "en" },
       });
       const r = res.data.inspectionResult?.indexStatusResult ?? {};
       const userCanonical = (r.userCanonical ?? "").replace(/\/+$/, "");
