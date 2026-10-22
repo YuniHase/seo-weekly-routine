@@ -25,6 +25,8 @@ export interface OrphanInfo {
   title: string;
   /** 被リンク数（0が孤立） */
   inbound: number;
+  /** クロールされている記事からの被リンク数。0なら発見経路として機能していない */
+  inboundFromCrawled?: number;
 }
 
 /** 文字バイグラム集合（日本語の簡易な類似度用） */
@@ -67,6 +69,41 @@ export function findOrphans(nodes: ArticleNode[]): OrphanInfo[] {
   return nodes
     .filter((n) => (counts.get(n.path) ?? 0) === 0)
     .map((n) => ({ path: n.path, title: n.title, inbound: 0 }));
+}
+
+/**
+ * クロールされている記事からの被リンク数を数える。
+ *
+ * 被リンクがあっても、張っている側がGoogleに一度も見られていなければ
+ * 発見経路にならない。実測で /humidity-sleep と /tropicalnight-tips は
+ * 互いにだけリンクし合っていて、外から入る経路が無かった。
+ */
+export function inboundFromCrawledCounts(nodes: ArticleNode[], crawled: Set<string>): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const n of nodes) counts.set(n.path, 0);
+  for (const n of nodes) {
+    if (!crawled.has(n.path)) continue;
+    for (const t of n.outbound) {
+      if (counts.has(t)) counts.set(t, (counts.get(t) ?? 0) + 1);
+    }
+  }
+  return counts;
+}
+
+/**
+ * 発見経路がない記事。被リンク0の記事に加えて、
+ * 「張られてはいるが張り元も未クロール」の記事を含む。
+ *
+ * `findOrphans` は被リンクの本数だけを見るので後者を取りこぼす。
+ * リンクを足して効くかどうかを決めるのは本数ではなく、
+ * 張り元がGoogleに見られているかどうか。
+ */
+export function findUndiscovered(nodes: ArticleNode[], crawled: Set<string>): OrphanInfo[] {
+  const all = inboundCounts(nodes);
+  const live = inboundFromCrawledCounts(nodes, crawled);
+  return nodes
+    .filter((n) => (live.get(n.path) ?? 0) === 0)
+    .map((n) => ({ path: n.path, title: n.title, inbound: all.get(n.path) ?? 0, inboundFromCrawled: 0 }));
 }
 
 export interface LinkSuggestion {

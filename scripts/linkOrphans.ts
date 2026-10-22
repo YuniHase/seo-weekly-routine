@@ -1,9 +1,14 @@
 /**
- * 孤立記事（被リンク0）へのリンクを、リライトと切り離して単独で張る。
+ * 発見経路がない記事へのリンクを、リライトと切り離して単独で張る。
  *
  * これまで孤立記事へのリンクは、リライト下書きを生成するときの副産物としてしか
  * 入らなかった。そのためクールダウンで下書きが0件になる週は、内部リンクの改善も
  * 同時に止まっていた（実測: 40本中17本が被リンク0）。
+ *
+ * 対象は「被リンク0」ではなく「クロールされている記事からの被リンクが0」で選ぶ。
+ * 被リンクがあっても張り元が未クロールなら経路として機能しないためで、実測では
+ * /humidity-sleep と /tropicalnight-tips が互いにだけリンクし合う閉じた輪になっていた。
+ * 本数で見ると被リンクありと数えられ、この2本は対象から漏れていた。
  *
  * リンクを張る相手は選ぶ。Googleが「クロール済み・インデックス未登録」と判定した
  * 記事は、見た上で見送られている。そこへリンクを足しても判定は変わらないため、
@@ -18,18 +23,24 @@
  * 元記事は読むだけで変更しない。生成物は必ず別の新規下書きとして投稿する。
  */
 import "dotenv/config";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import Anthropic from "@anthropic-ai/sdk";
 import { google } from "googleapis";
 import {
   fetchWpSnapshot,
   fetchPostContent,
   fetchAffiliateShortcodes,
+  fetchProposalRecords,
+  proposalTargetsFromRecords,
   lastInternalLinks,
   createDraft,
 } from "../src/fetch/wp.ts";
-import { findOrphans, inboundCounts } from "../src/analyze/internalLinks.ts";
+import { filterAlreadyProposed } from "../src/analyze/dedup.ts";
+import type { Candidate } from "../src/analyze/types.ts";
+import { loadHistory, mergeHistory } from "../src/history/store.ts";
+import { findUndiscovered } from "../src/analyze/internalLinks.ts";
 import { bigrams, dice } from "../src/analyze/internalLinks.ts";
+import type { ArticleNode } from "../src/analyze/internalLinks.ts";
 import { fetchGscData } from "../src/fetch/gsc.ts";
 import { aggregateByUrl } from "../src/analyze/aggregate.ts";
 import { normalizeUrl } from "../src/util/urlNormalize.ts";
@@ -66,38 +77,188 @@ async function coverage(url: string): Promise<string> {
   }
 }
 
+/**
+ * クロール済みかどうかの判定。
+ *
+ * 表示0は「低順位」ではなく「未登録」かもしれないので、表示実績だけでは切り分けられない。
+ * `scripts/indexStatus.ts` が残した lastCrawl（＝Googleが実際に見に来た記録）を正とし、
+ * その記録が無いときだけ表示実績で代用する。
+ */
+function crawledSet(nodes: ArticleNode[], impOf: (p: string) => number): Set<string> {
+  let rows: Array<{ url: string; lastCrawl?: string | null }> = [];
+  let checkedAt = "";
+  try {
+    const f = JSON.parse(readFileSync("data/indexStatus.json", "utf8"));
+    rows = f.rows ?? [];
+    checkedAt = f.checkedAt ?? "";
+  } catch {
+    /* 無ければ表示実績だけで判断する */
+  }
+  const byPath = new Map(rows.map((r) => [new URL(r.url).pathname.replace(/\/+$/, ""), r]));
+  const out = new Set<string>();
+  for (const n of nodes) {
+    const row = byPath.get(n.path);
+    if (row ? !!row.lastCrawl : impOf(n.path) > 0) out.add(n.path);
+  }
+  const ageDays = checkedAt ? Math.floor((Date.now() - Date.parse(checkedAt)) / 86_400_000) : null;
+  log.info("クロール済みの判定", {
+    クロール済み: out.size,
+    全体: nodes.length,
+    根拠: rows.length ? `data/indexStatus.json（${checkedAt.slice(0, 10)} 取得・${ageDays}日前）` : "表示実績のみ（indexStatus.json が無い）",
+  });
+  if (ageDays !== null && ageDays > 21) log.info("※ インデックス状況が古いので scripts/indexStatus.ts の再実行を検討", { 経過日数: ageDays });
+  return out;
+}
+
 const wp = await fetchWpSnapshot();
 await fetchAffiliateShortcodes(wp); // lastInternalLinks を埋める副作用
 const nodes = lastInternalLinks;
-const inbound = inboundCounts(nodes);
-const orphans = findOrphans(nodes);
 
 // リンク元は「Googleが実際に見に来ている記事」でなければ発見経路にならない
 const gsc = await fetchGscData();
 const agg = aggregateByUrl(gsc.current, gsc.currentPages);
 const impressionsOf = (path: string) => agg.get(normalizeUrl(CONFIG.wp.baseUrl + path + "/"))?.impressions ?? 0;
 
-log.info("孤立記事のインデックス状況を照会します", { 孤立: orphans.length, 全体: nodes.length });
+// 対象は被リンク0ではなく、クロールされている記事からの被リンクが0の記事
+const crawled = crawledSet(nodes, impressionsOf);
+const orphans = findUndiscovered(nodes, crawled);
+
+log.info("発見経路がない記事のインデックス状況を照会します", {
+  対象: orphans.length,
+  うち被リンク0: orphans.filter((o) => o.inbound === 0).length,
+  うち張り元が未クロール: orphans.filter((o) => o.inbound > 0).length,
+  全体: nodes.length,
+});
 
 interface Plan {
-  orphan: { path: string; title: string; cov: string; rank: number; label: string };
-  source: { id: number; path: string; title: string; impressions: number; score: number } | null;
+  orphan: { path: string; title: string; cov: string; rank: number; label: string; inbound: number };
+  source: { id: number; path: string; title: string; impressions: number; score: number; via: string; viaQuery: boolean } | null;
+  /** 閾値に届かなかった最有力候補。なぜ張れないのかを示すために残す */
+  nearest: { path: string; score: number; via: string; viaQuery: boolean } | null;
+  /** 関連度では最有力だが、クールダウン中のため外したリンク元 */
+  blocked: { path: string; score: number; reason: string } | null;
 }
+const MIN_SCORE = 0.1;
+
+/**
+ * リンク元の守備範囲は、タイトルよりも「実際に表示されているクエリ」のほうがよく表す。
+ * タイトルだけで測ると、/tropicalnight-tips（熱帯夜）に対する最有力が
+ * /recoverywear-size（サイズ選び）になるような的外れが起きる。
+ *
+ * ただし全クエリを1本の文字列に連結してはいけない。バイグラム集合が肥大し、
+ * Dice係数は集合サイズの差だけで下がるので、閾値の意味が変わってしまう。
+ * タイトルと各クエリを別々に比べて最も近いものを採る。見たいのは
+ * 「このリンク元は、その話題のクエリで既に表示されているか」なので、1本強く一致すれば足りる。
+ *
+ * クエリ次元は検索回数の少ないクエリが匿名化されて取れないが、ここで欲しいのは
+ * 記事の話題を言い表す代表的なクエリなので、取れている上位だけで足りる。
+ */
+interface SourceProfile {
+  id: number;
+  path: string;
+  title: string;
+  impressions: number;
+  outbound: string[];
+  texts: Array<{ text: string; bg: Set<string> }>;
+}
+
+// リンク元候補: 表示実績がある＝クロールされている記事。タイトルと上位クエリを別々に持つ
+const queriesOf = (path: string) =>
+  (agg.get(normalizeUrl(CONFIG.wp.baseUrl + path + "/"))?.queries ?? []).slice(0, 20).map((q) => q.query);
+const sources: SourceProfile[] = nodes
+  .filter((n) => impressionsOf(n.path) > 0)
+  .map((n) => ({
+    id: wp.publish.find((p) => new URL(p.link).pathname.replace(/\/+$/, "") === n.path)?.id ?? 0,
+    path: n.path,
+    title: n.title,
+    impressions: impressionsOf(n.path),
+    outbound: n.outbound,
+    texts: [n.title, ...queriesOf(n.path)].map((text) => ({ text, bg: bigrams(text) })),
+  }));
+log.info("リンク元候補の守備範囲", {
+  候補: sources.length,
+  クエリ付き: sources.filter((s) => s.texts.length > 1).length,
+  クエリ中央値: sources.map((s) => s.texts.length - 1).sort((a, b) => a - b)[Math.floor(sources.length / 2)],
+});
+
+/**
+ * クールダウン中の記事はリンク元にしない。
+ *
+ * クールダウンはリライトの効果測定のためにある。リンク段落の追記はリライトより小さな変更だが、
+ * 測定中の記事に手を入れれば前後比較が濁る点は同じ。しかもクエリで関連度を測ると、
+ * 表示の多い主力記事＝直近でリライトした記事ほど最有力に上がってくるので、放っておくと
+ * 毎回ここに当たる。
+ *
+ * 判定は週次ルーチンの filterAlreadyProposed をそのまま使う。未レビューの提案下書きが
+ * 残っている記事も除外される（同じ記事に競合する下書きを2本作らないため）。
+ * 残り日数の表示も週次レポートと一致する。
+ */
+const proposalRecords = await fetchProposalRecords(wp);
+const { merged: history } = mergeHistory(
+  loadHistory(),
+  proposalRecords
+    .filter((r) => r.targetUrl && r.runDate)
+    .map((r) => ({ runDate: r.runDate!, targetUrl: r.targetUrl!, wpDraftId: r.id, title: r.title, before: r.before })),
+);
+const lastProposedByUrl = new Map(
+  [...history].sort((a, b) => (a.runDate ?? "").localeCompare(b.runDate ?? "")).map((h) => [h.targetUrl, h.runDate] as const),
+);
+const probes: Candidate[] = sources.map((s) => ({
+  type: "rewrite",
+  rule: "R1",
+  targetUrl: CONFIG.wp.baseUrl + s.path + "/",
+  wpPostId: s.id,
+  queries: [],
+  score: 0,
+  metrics: {},
+  reason: "",
+}));
+const { skipped } = filterAlreadyProposed(
+  probes,
+  wp,
+  proposalTargetsFromRecords(proposalRecords),
+  lastProposedByUrl,
+  CONFIG.run.reproposeAfterDays,
+);
+const pathOfProbe = new Map(probes.map((c, i) => [c, sources[i].path] as const));
+const cooling = new Map(skipped.map((x) => [pathOfProbe.get(x.candidate)!, x.reason] as const));
+log.info("クールダウン中のためリンク元から外す記事", {
+  件数: cooling.size,
+  記事: [...cooling].map(([path, reason]) => `${path} … ${reason}`),
+});
 
 const plans: Plan[] = [];
 for (const o of orphans) {
   const cov = await coverage(CONFIG.wp.baseUrl + o.path + "/");
   const { rank, label } = priorityOf(cov);
   const ob = bigrams(o.title);
-  // リンク元候補: 表示実績がある＝クロールされている記事のうち、まだこの記事に張っていないもの
-  const best = nodes
-    .filter((n) => n.path !== o.path && !n.outbound.includes(o.path) && impressionsOf(n.path) > 0)
-    .map((n) => {
-      const ref = wp.publish.find((p) => new URL(p.link).pathname.replace(/\/+$/, "") === n.path);
-      return { id: ref?.id ?? 0, path: n.path, title: n.title, impressions: impressionsOf(n.path), score: dice(ob, bigrams(n.title)) };
+  const scored = sources
+    .filter((s) => s.path !== o.path && !s.outbound.includes(o.path))
+    .map((s) => {
+      // タイトル・各クエリのうち最も近いものを、この記事との関連度とする
+      let score = 0;
+      let via = s.title;
+      for (const t of s.texts) {
+        const sc = dice(ob, t.bg);
+        if (sc > score) ((score = sc), (via = t.text));
+      }
+      return { id: s.id, path: s.path, title: s.title, impressions: s.impressions, score, via, viaQuery: via !== s.title };
     })
-    .sort((a, b) => b.score - a.score)[0];
-  plans.push({ orphan: { path: o.path, title: o.title, cov, rank, label }, source: best && best.score >= 0.1 ? best : null });
+    .sort((a, b) => b.score - a.score);
+  const best = scored.find((s) => !cooling.has(s.path));
+  const passed = best && best.score >= MIN_SCORE ? best : null;
+  // クールダウンが明ければ選ばれるはずの記事。いつ張れるようになるかを人間が判断できるように残す
+  const top = scored[0];
+  const blocked =
+    top && cooling.has(top.path) && top.score >= MIN_SCORE && top.score > (passed?.score ?? 0)
+      ? { path: top.path, score: top.score, reason: cooling.get(top.path)! }
+      : null;
+  plans.push({
+    orphan: { path: o.path, title: o.title, cov, rank, label, inbound: o.inbound },
+    source: passed,
+    nearest: passed || !best ? null : { path: best.path, score: best.score, via: best.via, viaQuery: best.viaQuery },
+    blocked,
+  });
   process.stderr.write(".");
   await new Promise((r) => setTimeout(r, 250)); // 600req/分の上限に余裕を持たせる
 }
@@ -105,7 +266,8 @@ process.stderr.write("\n");
 plans.sort((a, b) => a.orphan.rank - b.orphan.rank || (b.source?.score ?? 0) - (a.source?.score ?? 0));
 
 if (RUN_ID === null) {
-  console.log(`\n孤立記事 ${orphans.length}本 / 全${nodes.length}本\n`);
+  console.log(`\n発見経路がない記事 ${orphans.length}本 / 全${nodes.length}本`);
+  console.log(`（被リンク0 ${orphans.filter((o) => o.inbound === 0).length}本 ＋ 張り元も未クロール ${orphans.filter((o) => o.inbound > 0).length}本）\n`);
   let lastLabel = "";
   for (const p of plans) {
     if (p.orphan.label !== lastLabel) {
@@ -114,8 +276,12 @@ if (RUN_ID === null) {
     }
     console.log(`  ${p.orphan.path}`);
     console.log(`    ${p.orphan.title.slice(0, 44)}`);
-    if (p.source) console.log(`    ← リンク元候補: ${p.source.path}（表示${p.source.impressions} / 関連度${p.source.score.toFixed(2)} / id=${p.source.id}）`);
+    if (p.orphan.inbound > 0) console.log(`    被リンク${p.orphan.inbound}本あるが、張り元もすべて未クロール（経路として機能していない）`);
+    const via = (m: { via: string; viaQuery: boolean }) => (m.viaQuery ? `クエリ「${m.via}」で一致` : `タイトルで一致`);
+    if (p.source) console.log(`    ← リンク元候補: ${p.source.path}（表示${p.source.impressions} / 関連度${p.source.score.toFixed(2)} / id=${p.source.id}）\n       ${via(p.source)}`);
+    else if (p.nearest) console.log(`    ← 関連の強いリンク元が見つかりません（最も近い ${p.nearest.path} でも関連度${p.nearest.score.toFixed(3)}／閾値${MIN_SCORE}・${via(p.nearest)}）`);
     else console.log(`    ← 関連の強いリンク元が見つかりません（無理に張らない）`);
+    if (p.blocked) console.log(`    ※ 最有力の ${p.blocked.path}（関連度${p.blocked.score.toFixed(2)}）は外した: ${p.blocked.reason}`);
   }
   // リンク元ごとにまとめると、1記事への追記で複数の孤立記事を拾える
   const bySource = new Map<number, Plan[]>();
@@ -133,6 +299,10 @@ if (RUN_ID === null) {
 
 // ---- 生成 ----
 const targets = plans.filter((p) => p.source?.id === RUN_ID && p.orphan.rank < 9);
+const runPath = sources.find((s) => s.id === RUN_ID)?.path;
+if (runPath && cooling.has(runPath)) {
+  throw new Error(`id=${RUN_ID}（${runPath}）はクールダウン中なのでリンク元にしません: ${cooling.get(runPath)}`);
+}
 if (!targets.length) throw new Error(`id=${RUN_ID} をリンク元とする対象がありません（計画を先に確認してください）`);
 const ref = wp.publish.find((p) => p.id === RUN_ID);
 if (!ref) throw new Error(`公開記事に id=${RUN_ID} が見つかりません`);
