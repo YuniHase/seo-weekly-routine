@@ -66,6 +66,7 @@ export function filterAlreadyProposed(
   // よって「【AI提案/...】元タイトル」というタイトルマーカーで既提案/却下を検出する。
   const proposalPosts = [...wp.draft.map((p) => ({ p, st: "draft" as const })), ...wp.trash.map((p) => ({ p, st: "trash" as const }))]
     .filter(({ p }) => p.title.includes("AI提案"));
+  const lastProposed = new Map([...(lastProposedByUrl ?? [])].map(([url, d]) => [normalizeUrl(url), d] as const));
 
   const kept: Candidate[] = [];
   const skipped: Array<{ candidate: Candidate; reason: string }> = [];
@@ -75,8 +76,18 @@ export function filterAlreadyProposed(
       const u = normalizeUrl(c.targetUrl);
       // 最優先: 提案本文の `対象:URL` で照合（タイトル変更に強い・恒久的に堅牢）
       if (proposalTargets?.drafted.has(u)) { skipped.push({ candidate: c, reason: "draftに提案済み(対象URL一致)" }); continue; }
+      // 提案履歴（data/proposals.json）の日付だけでクールダウンを判定する。
+      // 以前はWP上の記録（ゴミ箱の下書き）が見つかったときにしか日付を見ておらず、
+      // ゴミ箱が約30日で自動削除されると、60日経たずにクールダウンが切れていた
+      // （実例: /when-to-wear は 9/20 提案で、10/22 に下書き534が消えて素通りになった）。
+      // クールダウンは効果測定のためにあるので、WPに記録が残っているかどうかで変えない。
+      const elapsedByHistory = daysSince(lastProposed.get(u), now);
+      if (elapsedByHistory !== null && elapsedByHistory < cooldownDays) {
+        skipped.push({ candidate: c, reason: `対応済み・クールダウン中(あと約${cooldownDays - elapsedByHistory}日)` });
+        continue;
+      }
       if (proposalTargets?.rejected.has(u)) {
-        const elapsed = daysSince(lastProposedByUrl?.get(u), now);
+        const elapsed = daysSince(lastProposed.get(u), now);
         if (elapsed === null || elapsed < cooldownDays) {
           const left = elapsed === null ? cooldownDays : cooldownDays - elapsed;
           skipped.push({ candidate: c, reason: `対応済み・クールダウン中(あと約${left}日)` });
@@ -99,7 +110,7 @@ export function filterAlreadyProposed(
             skipped.push({ candidate: c, reason: "draftに提案済み(タイトル一致)" });
             continue;
           }
-          const elapsed = daysSince(lastProposedByUrl?.get(u), now);
+          const elapsed = daysSince(lastProposed.get(u), now);
           if (elapsed === null || elapsed < cooldownDays) {
             const left = elapsed === null ? cooldownDays : cooldownDays - elapsed;
             skipped.push({ candidate: c, reason: `対応済み・クールダウン中(あと約${left}日・タイトル一致)` });
