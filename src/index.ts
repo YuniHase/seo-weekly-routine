@@ -28,7 +28,7 @@ import { buildWeeklyReport, writeReport } from "./report/summary.ts";
 import { fetchMediaLibrary } from "./fetch/media.ts";
 import { buildPhotoCatalog, insertablePhotos } from "./generate/photoCatalog.ts";
 import { loadHistory, saveHistory, mergeHistory, type HistoryEntry } from "./history/store.ts";
-import type { AnalyzeInput, Candidate } from "./analyze/types.ts";
+import type { AnalyzeInput, Candidate, WpStatus } from "./analyze/types.ts";
 
 /** URL → 末尾スラッシュを除いたパス（内部リンク照合用） */
 function pathOfUrl(u: string): string {
@@ -77,7 +77,11 @@ async function main(): Promise<void> {
     .map((r) => ({ runDate: r.runDate!, targetUrl: r.targetUrl!, wpDraftId: r.id, title: r.title, before: r.before }));
   const { merged: history1, added: addedFromWp } = mergeHistory(history0, fromWp);
   if (addedFromWp > 0) log.info("WPの提案記録を履歴に取り込みました", { added: addedFromWp });
-  const statusByUrl = new Map(proposalRecords.filter((r) => r.targetUrl).map((r) => [r.targetUrl!, r.status] as const));
+  // 同じ記事に提案が複数あるとき、1本でも下書きで残っていれば「未レビュー」と表示する
+  const statusByUrl = new Map<string, WpStatus>();
+  for (const r of proposalRecords) {
+    if (r.targetUrl && statusByUrl.get(r.targetUrl) !== "draft") statusByUrl.set(r.targetUrl, r.status);
+  }
 
   const input: AnalyzeInput = {
     gscCurrent: gsc.current,

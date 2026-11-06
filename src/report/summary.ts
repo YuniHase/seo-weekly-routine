@@ -90,10 +90,14 @@ function seoDigest(gscCurrent: GscRow[], gscPrevious: GscRow[], curPages?: GscRo
 /** C. リライト効果測定（提案時 vs 現在）。台帳は履歴JSON、WPは現在の状態の参照元。 */
 function rewriteEffect(gscCurrent: GscRow[], history: HistoryEntry[], statusByUrl: Map<string, WpStatus>, curPages?: GscRow[]): string {
   const cur = aggregateByUrl(gscCurrent, curPages);
-  // 同一URLは最新の提案（runDate最大）を代表として表示
+  // 同一URLは最新の提案（runDate最大）を代表として表示。
+  // 提案時の数値が無い記録（週次の外の下書きをタイトルから補ったもの）は比べられないので表には出さない。
+  // 履歴には残っていて、クールダウンには効く。
   const byUrl = new Map<string, HistoryEntry>();
   for (const r of history) {
     if (!r.targetUrl) continue;
+    const b = r.before;
+    if (b?.position === undefined && b?.ctr === undefined && b?.impressions === undefined) continue;
     const ex = byUrl.get(r.targetUrl);
     if (!ex || (r.runDate ?? "") > (ex.runDate ?? "")) byUrl.set(r.targetUrl, r);
   }

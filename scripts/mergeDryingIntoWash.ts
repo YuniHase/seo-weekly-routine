@@ -118,6 +118,6 @@ if (!POST) {
   console.log("※ 投稿はしていません。--post を付けると新規下書きとして投稿します。");
   process.exit(0);
 }
-const created = await createDraft({ title: `【AI提案/統合】${orig.title}`, contentHtml: html });
+const created = await createDraft({ title: `【AI提案/統合】${orig.title}`, contentHtml: html, proposal: { typeLabel: "統合", targetUrl: orig.link! } });
 console.log(`\n新規下書きとして投稿しました: id=${created.id}`);
 console.log(created.editLink ?? "");

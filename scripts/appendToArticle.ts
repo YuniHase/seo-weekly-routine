@@ -67,7 +67,7 @@ if (POST_SAVED) {
   const t0 = s0.publish.find((p) => p.id === id);
   if (!t0) throw new Error(`公開記事に id=${id} が見つかりません`);
   const html0 = readFileSync(file, "utf8");
-  const c0 = await createDraft({ title: `【AI提案/追記】${t0.title}`, contentHtml: html0 });
+  const c0 = await createDraft({ title: `【AI提案/追記】${t0.title}`, contentHtml: html0, proposal: { typeLabel: "追記", targetUrl: t0.link } });
   console.log(`保存済みの内容を投稿しました: id=${c0.id}`);
   console.log(c0.editLink ?? "");
   process.exit(0);
@@ -199,6 +199,6 @@ if (!POST) {
   console.log("※ 投稿はしていません。--post を付けると新規下書きとして投稿します。");
   process.exit(0);
 }
-const created = await createDraft({ title: `【AI提案/追記】${ref.title}`, contentHtml: result });
+const created = await createDraft({ title: `【AI提案/追記】${ref.title}`, contentHtml: result, proposal: { typeLabel: "追記", targetUrl: ref.link } });
 console.log(`\n新規下書きとして投稿しました: id=${created.id} status=${created.status}`);
 console.log(created.editLink ?? "");

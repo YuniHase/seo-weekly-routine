@@ -16,6 +16,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { CONFIG } from "../config.ts";
 import { log } from "../util/logger.ts";
 import { normalizeUrl } from "../util/urlNormalize.ts";
+import { buildProposalComment, hasProposalComment, parseProposalComment, today, type ProposalMetrics } from "../history/proposalMeta.ts";
 import type { WpPostRef, WpSnapshot, WpStatus, ProposalTargets } from "../analyze/types.ts";
 
 function authHeader(): string {
@@ -110,44 +111,50 @@ export interface ProposalRecord {
   id: number;
   status: WpStatus; // draft=未レビュー / trash=却下 / publish=採用(タイトル未変更の場合のみ検出)
   title: string;
-  targetUrl: string | null; // 正規化済み（`対象:` コメント由来）
+  targetUrl: string | null; // 正規化済み（`対象:` コメント由来。無ければタイトルから補う）
   runDate: string | null; // 実行日 YYYY-MM-DD
-  before: { position?: number; ctr?: number; impressions?: number }; // 提案時点の現状メトリクス
+  before: ProposalMetrics; // 提案時点の現状メトリクス（コメント由来のみ）
 }
 
 /**
  * AI提案の draft/trash/publish 記事の「本文コメント」を読み、提案記録を抽出する。
  * コメント形式: `<!-- SEOルーチン提案 | 実行日: … | … | 現状: 順位X CTR Y% ImpZ | 対象: <URL> -->`
  * タイトルは人手編集/元記事タイトル変更で一致しなくなるため、対象URLで判定する（堅牢）。
- * コメントの無いテスト下書き等は targetUrl=null となり判定に影響しない。
+ *
+ * コメントの無い下書き（週次の外のスクリプトが以前作ったもの）は、
+ * 「【AI提案/…】元記事タイトル」の元記事タイトルが公開記事と完全一致し、かつ1本に決まるときだけ
+ * 対象を補う。実行日にはWP上の日付を使う。下書きの日付は保存のたびに更新されるので、
+ * ゴミ箱に入っていれば「ゴミ箱に入れた日」＝記事に反映した日に近い。測定の起点としては
+ * 作成日よりむしろ正確（実測: 10/20 作成の620は、反映してゴミ箱に入れた 11/6 になった）。
+ * これで、ゴミ箱が消える前の週次実行で履歴に写せる。
+ * 提案時の数値は分からないので空のまま（効果測定の表には出さない）。
  */
 export async function fetchProposalRecords(snapshot: WpSnapshot): Promise<ProposalRecord[]> {
   const posts = [...snapshot.draft, ...snapshot.trash, ...snapshot.publish].filter((p) => p.title.includes("AI提案"));
+  const publishByTitle = new Map<string, WpPostRef[]>();
+  for (const p of snapshot.publish) publishByTitle.set(p.title.trim(), [...(publishByTitle.get(p.title.trim()) ?? []), p]);
   const records: ProposalRecord[] = [];
+  let byTitle = 0;
   for (const p of posts) {
     try {
-      const { contentHtml } = await fetchPostContent(p.id);
-      const url = contentHtml.match(/対象:\s*(https?:\/\/[^\s|>]+)/)?.[1];
-      const date = contentHtml.match(/実行日:\s*(\d{4}-\d{2}-\d{2})/)?.[1] ?? null;
-      const pos = contentHtml.match(/順位([\d.]+)/)?.[1];
-      const ctr = contentHtml.match(/CTR([\d.]+)%/)?.[1];
-      const imp = contentHtml.match(/Imp([\d,]+)/)?.[1];
-      records.push({
-        id: p.id,
-        status: p.status,
-        title: p.title,
-        targetUrl: url ? normalizeUrl(url) : null,
-        runDate: date,
-        before: {
-          position: pos ? Number(pos) : undefined,
-          ctr: ctr ? Number(ctr) / 100 : undefined,
-          impressions: imp ? Number(imp.replace(/,/g, "")) : undefined,
-        },
-      });
+      const { contentHtml, date } = await fetchPostContent(p.id);
+      const meta = parseProposalComment(contentHtml);
+      let targetUrl = meta?.targetUrl ? normalizeUrl(meta.targetUrl) : null;
+      let runDate = meta?.runDate ?? null;
+      if (!meta && p.status !== "publish") {
+        const hits = publishByTitle.get(p.title.replace(/^【AI提案\/[^】]*】/, "").trim()) ?? [];
+        if (hits.length === 1 && date) {
+          targetUrl = normalizeUrl(hits[0].link);
+          runDate = date.slice(0, 10);
+          byTitle++;
+        }
+      }
+      records.push({ id: p.id, status: p.status, title: p.title, targetUrl, runDate, before: meta?.before ?? {} });
     } catch (e) {
       log.warn(`提案記録の抽出に失敗 id=${p.id}`, e instanceof Error ? e.message : String(e));
     }
   }
+  if (byTitle > 0) log.info("コメントの無い提案下書きの対象をタイトルから補いました", { 件数: byTitle });
   return records;
 }
 
@@ -285,18 +292,24 @@ export function proposalTargetsFromRecords(records: ProposalRecord[]): ProposalT
   return { drafted, rejected };
 }
 
-/** リライト対象の本文をedit contextで取得。 */
-export async function fetchPostContent(id: number): Promise<{ title: string; contentHtml: string }> {
-  const url = `${CONFIG.wp.baseUrl}/wp-json/wp/v2/posts/${id}?context=edit&_fields=title,content`;
+/** リライト対象の本文をedit contextで取得。date は投稿日（下書き・ゴミ箱は最終保存日＝ゴミ箱に入れた日など） */
+export async function fetchPostContent(id: number): Promise<{ title: string; contentHtml: string; date?: string; link?: string }> {
+  const url = `${CONFIG.wp.baseUrl}/wp-json/wp/v2/posts/${id}?context=edit&_fields=title,content,date,link`;
   const res = await getWithRetry(url, { headers: { Authorization: authHeader() } });
   if (!res.ok) throw new Error(`WP本文取得失敗 id=${id}: HTTP ${res.status}`);
-  const b = (await res.json()) as { title?: { raw?: string; rendered?: string }; content?: { raw?: string; rendered?: string } };
-  return { title: b.title?.raw ?? b.title?.rendered ?? "", contentHtml: b.content?.raw ?? b.content?.rendered ?? "" };
+  const b = (await res.json()) as { title?: { raw?: string; rendered?: string }; content?: { raw?: string; rendered?: string }; date?: string; link?: string };
+  return { title: b.title?.raw ?? b.title?.rendered ?? "", contentHtml: b.content?.raw ?? b.content?.rendered ?? "", date: b.date, link: b.link };
 }
 
 export interface DraftInput {
   title: string;
   contentHtml: string;
+  /**
+   * 既存記事に手を入れる下書きなら、その記事と種類を渡す。冒頭に提案メタコメントを入れ、
+   * 週次ルーチンが提案履歴（クールダウン・効果測定）に取り込めるようにする。
+   * 本文に既にコメントがあれば（週次の生成物）何もしない。
+   */
+  proposal?: { typeLabel: string; targetUrl: string; metrics?: ProposalMetrics; queries?: string[] };
 }
 
 export interface CreatedDraft {
@@ -314,11 +327,18 @@ export interface CreatedDraft {
  * リライト元記事を上書き・変更することはない（§5-3: 元記事は変更しない）。
  */
 export async function createDraft(input: DraftInput): Promise<CreatedDraft> {
+  let content = input.contentHtml;
+  if (input.proposal && !hasProposalComment(content)) {
+    content = `${buildProposalComment({ ...input.proposal, runDate: today(), targetUrl: normalizeUrl(input.proposal.targetUrl) })}\n${content}`;
+  }
+  if (input.title.includes("AI提案") && !hasProposalComment(content)) {
+    log.warn("提案メタコメントの無い下書きを投稿します（提案履歴に対象が残らない）", { title: input.title });
+  }
   const url = `${CONFIG.wp.baseUrl}/wp-json/wp/v2/posts`; // IDなし＝新規作成
   const res = await fetch(url, {
     method: "POST",
     headers: { Authorization: authHeader(), "Content-Type": "application/json" },
-    body: JSON.stringify({ title: input.title, content: input.contentHtml, status: "draft" }),
+    body: JSON.stringify({ title: input.title, content, status: "draft" }),
   });
   if (res.status !== 201 && !res.ok) {
     const t = await res.text();

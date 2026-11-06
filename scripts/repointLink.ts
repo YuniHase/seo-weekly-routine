@@ -45,6 +45,6 @@ console.log(`ショートコード: ${JSON.stringify(html.match(/\[affi[^\]]*\]/
 writeFileSync(`repoint-${id}.html`, html);
 console.log(`repoint-${id}.html に保存しました。`);
 if (!POST) { console.log("※ 投稿はしていません。--post を付けると新規下書きとして投稿します。"); process.exit(0); }
-const created = await createDraft({ title: `【AI提案/リンク修正】${orig.title}`, contentHtml: html });
+const created = await createDraft({ title: `【AI提案/リンク修正】${orig.title}`, contentHtml: html, proposal: { typeLabel: "リンク修正", targetUrl: orig.link! } });
 console.log(`\n新規下書きとして投稿しました: id=${created.id}`);
 console.log(created.editLink ?? "");

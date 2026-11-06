@@ -19,6 +19,7 @@ import { applyPhotoMarkers, stripForeignImages } from "./photoInsert.ts";
 import type { PhotoEntry } from "./photoCatalog.ts";
 import type { MediaItem } from "../fetch/media.ts";
 import { log } from "../util/logger.ts";
+import { buildProposalComment, today } from "../history/proposalMeta.ts";
 
 export interface GenContext {
   originalTitle?: string; // リライト元タイトル
@@ -62,23 +63,15 @@ export interface GeneratedDraft {
   usage: { model: string; inputTokens: number; outputTokens: number };
 }
 
-function today(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
 /** 提案理由コメントブロック（§5-3） */
 function proposalComment(c: Candidate): string {
-  const m = c.metrics;
-  const state = [
-    m.position !== undefined ? `順位${m.position.toFixed(1)}` : null,
-    m.ctr !== undefined ? `CTR${(m.ctr * 100).toFixed(1)}%` : null,
-    m.impressions !== undefined ? `Imp${m.impressions}` : null,
-  ].filter(Boolean).join(" ");
-  const q = c.queries;
-  const qStr = q.length ? `"${q[0]}"${q.length > 1 ? ` 他${q.length - 1}件` : ""}` : "-";
-  const typeLabel = c.type === "rewrite" ? `リライト(${c.rule})` : `新規(${c.rule})`;
-  const target = c.targetUrl ? ` | 対象: ${c.targetUrl}` : "";
-  return `<!-- SEOルーチン提案 | 実行日: ${today()} | タイプ: ${typeLabel} | 対象クエリ: ${qStr} | 現状: ${state || "-"}${target} -->`;
+  return buildProposalComment({
+    runDate: today(),
+    typeLabel: c.type === "rewrite" ? `リライト(${c.rule})` : `新規(${c.rule})`,
+    queries: c.queries,
+    metrics: c.metrics,
+    targetUrl: c.targetUrl,
+  });
 }
 
 /**

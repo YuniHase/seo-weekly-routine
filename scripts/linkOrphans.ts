@@ -375,6 +375,11 @@ if (!preserved || inserted.length === 0) process.exit(1);
 writeFileSync(`orphanlinks-${RUN_ID}.html`, html);
 console.log(`\norphanlinks-${RUN_ID}.html に保存しました。`);
 if (!POST) { console.log("※ 投稿はしていません。--post を付けると新規下書きとして投稿します。"); process.exit(0); }
-const created = await createDraft({ title: `【AI提案/内部リンク】${orig.title}`, contentHtml: html });
+const created = await createDraft({
+  title: `【AI提案/内部リンク】${orig.title}`,
+  contentHtml: html,
+  // 手を入れるのはリンク元の記事。提案履歴に残してクールダウンを効かせる
+  proposal: { typeLabel: "内部リンク", targetUrl: ref.link, metrics: agg.get(normalizeUrl(ref.link)) },
+});
 console.log(`\n新規下書きとして投稿しました: id=${created.id}`);
 console.log(created.editLink ?? "");
