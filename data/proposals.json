@@ -1,5 +1,12 @@
 [
   {
+    "runDate": "2026-11-06",
+    "targetUrl": "https://recovery-wear-guide.com/food-coma",
+    "wpDraftId": 620,
+    "title": "【AI提案/内部リンク】ランチ後の「午後2時」が辛いあなたへ。昼間に眠い・だるい原因と、今日からできるパフォーマンス維持のコツ",
+    "before": {}
+  },
+  {
     "runDate": "2026-11-02",
     "targetUrl": "https://recovery-wear-guide.com/bakune-review",
     "rule": "R3",
@@ -10,6 +17,69 @@
       "ctr": 0.01639344262295082,
       "impressions": 183
     }
+  },
+  {
+    "runDate": "2026-11-01",
+    "targetUrl": "https://recovery-wear-guide.com/general-medical-device",
+    "wpDraftId": 621,
+    "title": "【AI提案/内部リンク】リカバリーウェアの「一般医療機器」って何？30代筆者が教える“失敗しない”見分け方と選び方の基準",
+    "before": {}
+  },
+  {
+    "runDate": "2026-10-27",
+    "targetUrl": "https://recovery-wear-guide.com/sleep-routine",
+    "wpDraftId": 619,
+    "title": "【AI提案/内部リンク】「寝起きがだるい」原因と朝スッキリ起きる方法｜忙しい私が変わったルーティン",
+    "before": {}
+  },
+  {
+    "runDate": "2026-10-22",
+    "targetUrl": "https://recovery-wear-guide.com/not-enough-sleep",
+    "wpDraftId": 618,
+    "title": "【AI提案/内部リンク】寝ても眠い・だるい原因は？睡眠は足りているのに眠い女性に起きていること",
+    "before": {}
+  },
+  {
+    "runDate": "2026-10-22",
+    "targetUrl": "https://recovery-wear-guide.com/recoverywear-effect",
+    "wpDraftId": 617,
+    "title": "【AI提案/内部リンク】「リカバリーウェアは効果ない？」と不安なあなたへ。30代筆者が実感した“変化”と、諦める前のチェックリスト",
+    "before": {}
+  },
+  {
+    "runDate": "2026-10-14",
+    "targetUrl": "https://recovery-wear-guide.com/howtowash-recoverywear",
+    "wpDraftId": 611,
+    "title": "【AI提案/統合】リカバリーウェアの乾燥機はNG？洗濯で効果は落ちる？毎日洗う頻度と正しい洗い方を解説",
+    "before": {}
+  },
+  {
+    "runDate": "2026-10-14",
+    "targetUrl": "https://recovery-wear-guide.com/recoverywear-winter",
+    "wpDraftId": 612,
+    "title": "【AI提案/リンク修正】リカバリーウェアの冬用選び方｜寒い夜も暖かい裏起毛・重ね着のコツを解説",
+    "before": {}
+  },
+  {
+    "runDate": "2026-10-13",
+    "targetUrl": "https://recovery-wear-guide.com/howtowash-recoverywear",
+    "wpDraftId": 598,
+    "title": "【AI提案/追記】リカバリーウェアの乾燥機はNG？洗濯で効果は落ちる？毎日洗う頻度と正しい洗い方を解説",
+    "before": {}
+  },
+  {
+    "runDate": "2026-10-13",
+    "targetUrl": "https://recovery-wear-guide.com/recoverywear_lifespan",
+    "wpDraftId": 599,
+    "title": "【AI提案/追記】リカバリーウェアの効果はいつまで？寿命の目安「1〜2年」と買い替えサイン",
+    "before": {}
+  },
+  {
+    "runDate": "2026-10-13",
+    "targetUrl": "https://recovery-wear-guide.com/recoverywear-winter",
+    "wpDraftId": 600,
+    "title": "【AI提案/追記】リカバリーウェアの冬用選び方｜寒い夜も暖かい裏起毛・重ね着のコツを解説",
+    "before": {}
   },
   {
     "runDate": "2026-10-05",
