@@ -9,6 +9,7 @@ import { getGoogleAuth } from "./googleAuth.ts";
 import { analysisPeriods } from "../util/dateRange.ts";
 import { log } from "../util/logger.ts";
 import type { Ga4Row, AffiliateClicks } from "../analyze/types.ts";
+import { emptyCounts, engineOf, type OrganicByEngine, type EngineCounts } from "../analyze/searchEngines.ts";
 
 export async function fetchGa4Data(): Promise<Ga4Row[]> {
   const { current } = analysisPeriods(CONFIG.run.lookbackDays, CONFIG.run.dataDelayDays);
@@ -72,5 +73,44 @@ export async function fetchAffiliateClicks(): Promise<Map<string, AffiliateClick
     out.set(path, cur);
   }
   log.info("アフィリンククリック取得完了", { pages: out.size, total: [...out.values()].reduce((s, v) => s + v.total, 0) });
+  return out;
+}
+
+/**
+ * 自然検索のセッションを、着地ページ × 検索エンジン別に取得する（直近28日と前28日）。
+ * GSC には Google の数字しか出ないので、Bing系・Yahoo! の流入はここでしか見えない。
+ * 補助データなので、失敗しても週次実行は止めない（空で返す）。
+ */
+export async function fetchOrganicByEngine(): Promise<OrganicByEngine> {
+  const { current, previous } = analysisPeriods(CONFIG.run.lookbackDays, CONFIG.run.dataDelayDays);
+  const out: OrganicByEngine = { current: new Map(), previous: new Map() };
+  try {
+    const data = google.analyticsdata({ version: "v1beta", auth: getGoogleAuth() });
+    const res = await data.properties.runReport({
+      property: `properties/${CONFIG.google.ga4PropertyId}`,
+      requestBody: {
+        dateRanges: [
+          { startDate: current.startDate, endDate: current.endDate, name: "current" },
+          { startDate: previous.startDate, endDate: previous.endDate, name: "previous" },
+        ],
+        dimensions: [{ name: "landingPage" }, { name: "sessionSource" }],
+        metrics: [{ name: "sessions" }],
+        dimensionFilter: { filter: { fieldName: "sessionMedium", stringFilter: { matchType: "EXACT", value: "organic" } } },
+        limit: "100000",
+      },
+    });
+    for (const r of res.data.rows ?? []) {
+      // 期間を複数渡すと、末尾に dateRange の次元（ここでは名前）が付く
+      const [page, source, range] = (r.dimensionValues ?? []).map((v) => v.value ?? "");
+      const target = range === "previous" ? out.previous : out.current;
+      const path = page.replace(/\/+$/, "") || "/";
+      const c: EngineCounts = target.get(path) ?? emptyCounts();
+      c[engineOf(source)] += Number(r.metricValues?.[0]?.value ?? 0);
+      target.set(path, c);
+    }
+    log.info("検索エンジン別の流入を取得", { 記事: out.current.size });
+  } catch (e) {
+    log.warn("検索エンジン別の流入を取得できませんでした（レポートの該当節は省略）", e instanceof Error ? e.message : String(e));
+  }
   return out;
 }

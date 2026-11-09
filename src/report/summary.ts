@@ -14,6 +14,8 @@ import { intentSection, phantomRankSection, revenueCeilingSection, concentration
 import { CONFIG } from "../config.ts";
 import { findOrphans, suggestSourcesForOrphans } from "../analyze/internalLinks.ts";
 import { seasonalContextSection } from "./seasonalContext.ts";
+import { searchEngineSection } from "./searchEngines.ts";
+import type { OrganicByEngine } from "../analyze/searchEngines.ts";
 import type { DailyPoint } from "../fetch/gsc.ts";
 import type { GscRow, WpStatus, Ga4Row, AffiliateClicks } from "../analyze/types.ts";
 import type { HistoryEntry } from "../history/store.ts";
@@ -192,6 +194,7 @@ export function buildWeeklyReport(
   articleAffiliateCounts: Array<{ path: string; title: string; affiliateCount: number }> = [],
   internalLinkNodes: Array<{ path: string; title: string; outbound: string[] }> = [],
   baselineDaily: DailyPoint[] = [],
+  organicByEngine?: OrganicByEngine,
 ): string {
   // 収益上限の概算に使う実績値
   const sessByPath = new Map<string, number>();
@@ -210,6 +213,9 @@ export function buildWeeklyReport(
     `対象サイト分析: 直近28日 vs 前28日（${periods.previous.startDate}〜${periods.previous.endDate}）`,
     "",
     revenueSection(gscCurrent, ga4, affiliate, gscCurrentPages),
+    "",
+    // 収益のすぐ後に置く。稼いでいる記事がどの検索エンジンに頼っているかで、以降の節の読み方が変わる
+    organicByEngine ? searchEngineSection(organicByEngine, affiliate) : "",
     "",
     revenueCeilingSection(totalSessions, totalAffClicks, targetAffRate, CONFIG.run.affiliateEpcYen),
     "",

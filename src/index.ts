@@ -17,7 +17,8 @@
 import { CONFIG } from "./config.ts";
 import { log } from "./util/logger.ts";
 import { fetchGscData } from "./fetch/gsc.ts";
-import { fetchGa4Data, fetchAffiliateClicks } from "./fetch/ga4.ts";
+import { fetchGa4Data, fetchAffiliateClicks, fetchOrganicByEngine } from "./fetch/ga4.ts";
+import { bingDependence } from "./analyze/searchEngines.ts";
 import { fetchWpSnapshot, fetchProposalRecords, proposalTargetsFromRecords, fetchAffiliateShortcodes, insertableShortcodes, withExtraShortcodes, lastArticleAffiliateCounts, lastInternalLinks, fetchPostContent, createDraft } from "./fetch/wp.ts";
 import { resolveShortcodeProducts, attachProducts } from "./fetch/shortcodeProducts.ts";
 import { buildCandidates, sensitivity } from "./analyze/pipeline.ts";
@@ -60,7 +61,9 @@ async function main(): Promise<void> {
     lookbackDays: CONFIG.run.lookbackDays,
   });
 
-  const [gsc, ga4, wp, affiliate] = await Promise.all([fetchGscData(), fetchGa4Data(), fetchWpSnapshot(), fetchAffiliateClicks()]);
+  const [gsc, ga4, wp, affiliate, organicByEngine] = await Promise.all([
+    fetchGscData(), fetchGa4Data(), fetchWpSnapshot(), fetchAffiliateClicks(), fetchOrganicByEngine(),
+  ]);
   log.info("WP記事数", { publish: wp.publish.length, draft: wp.draft.length, trash: wp.trash.length });
 
   // 提案記録（対象URL・実行日・提案時メトリクス）を本文コメントから抽出。
@@ -118,7 +121,11 @@ async function main(): Promise<void> {
     console.log("  採用候補は0件。下の感度分析を参照。");
   } else {
     console.log(`  【今週の生成対象（上位${CONFIG.run.maxDraftsPerRun}件）】`);
-    selected.forEach((c, i) => console.log(line(c, i)));
+    selected.forEach((c, i) => {
+      console.log(line(c, i));
+      const dep = c.type === "rewrite" ? bingDependence(organicByEngine, pathOfUrl(c.targetUrl ?? "")) : null;
+      if (dep) console.log(`      ⚠️ ${dep.note}`);
+    });
     if (dedup.kept.length > selected.length) {
       console.log(`  （対象外の残り候補: ${dedup.kept.length - selected.length}件）`);
     }
@@ -161,6 +168,7 @@ async function main(): Promise<void> {
       articleAffiliateCounts,
       linkNodes,
       gsc.baselineDaily,
+      organicByEngine,
     );
     writeReport(report);
     log.info("週次レポートを出力しました", { to: process.env.GITHUB_STEP_SUMMARY ? "GITHUB_STEP_SUMMARY" : "stdout" });
@@ -243,7 +251,12 @@ async function main(): Promise<void> {
     if (!d) { failed++; log.warn("生成結果なし（スキップ）", { url: c.targetUrl ?? c.queries[0] }); continue; }
     inTok += d.usage.inputTokens; outTok += d.usage.outputTokens;
     try {
-      const res = await createDraft({ title: d.title, contentHtml: d.contentHtml });
+      // Google 以外の検索に流入を頼っている記事なら、レビューする人の目に入るよう冒頭コメントの直後に書く
+      const dep = c.type === "rewrite" ? bingDependence(organicByEngine, pathOfUrl(c.targetUrl ?? "")) : null;
+      const warned = dep
+        ? d.contentHtml.replace(/(<!--\s*SEOルーチン提案[\s\S]*?-->)/, `$1\n<!-- ⚠️ ${dep.note} -->`)
+        : d.contentHtml;
+      const res = await createDraft({ title: d.title, contentHtml: warned });
       created++;
       newEntries.push({
         runDate: new Date().toISOString().slice(0, 10),

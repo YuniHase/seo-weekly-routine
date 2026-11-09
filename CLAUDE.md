@@ -31,6 +31,9 @@ recovery-wear-guide.com（WordPress + Cocoon / Xserver）の週次SEO・アフ�
 - **勝っている記事の中身を削って負けている記事に渡さない。**
 - **前期比の急落は季節かもしれない。** 立ち上げ1年目で前年同期比が無いため、長期中央値を平常時の目安にする
   （`src/report/seasonalContext.ts`）。
+- **GSCに出るのはGoogleだけ。** 自然検索はBing系（Bing・DuckDuckGo・Ecosia）のほうが多く（2026-10-10〜11-06で
+  Bing系466 / Google 290 / Yahoo! 98セッション）、収益の8割を占める `/bakune-review` は検索流入の99%がBing系。
+  Googleの順位を根拠にした提案をBing頼みの記事に当てる前に、週次レポートの「🔎 検索エンジン別の流入」を見る。
 
 ## 運用の勘所
 
