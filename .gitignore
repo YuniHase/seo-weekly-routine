@@ -22,3 +22,9 @@ data/photoCatalog.json
 data/shortcodeProducts.json
 rewrite-*.html
 winter-draft.html
+# スクリプトが投稿前のレビュー用に書き出す下書き本文
+append-*.html
+funnel-*.html
+merge-*.html
+orphanlinks-*.html
+repoint-*.html
