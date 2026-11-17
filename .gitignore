@@ -28,3 +28,5 @@ funnel-*.html
 merge-*.html
 orphanlinks-*.html
 repoint-*.html
+# 棚卸しの結果（その日の時点の記録）
+audit-*.json
